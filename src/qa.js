@@ -28,10 +28,10 @@ export async function loadQa(state, api, current) {
   state.qaCourses ??= {};
   const f = state.feature = state.qaCourses[key] ??= { tab: 'qa', data: null, drafts: [], selected: [], counts: { ask: 3, answer: 5 }, topic: '' };
   const root = coursePath(state.route.pid, state.course);
-  const [score, posts, settings] = await Promise.allSettled([api(root + '/catalog/score'), api(root + '/catalog/posts'), api('/api/settings')]);
+  const [score, posts, settings, rules] = await Promise.allSettled([api(root + '/catalog/score?part=interaction'), api(root + '/catalog/posts'), api('/api/settings'), api(root + '/catalog/score?part=rules')]);
   if (!current()) return;
-  f.data = { score: score.status === 'fulfilled' ? score.value : null, own_posts: posts.status === 'fulfilled' ? posts.value.posts : [] };
-  f.error = [score, posts].filter((r) => r.status === 'rejected').map((r) => r.reason.message).join('；');
+  f.data = { score: score.status === 'fulfilled' ? { ...score.value, rules: rules.status === 'fulfilled' ? rules.value.rules : null } : null, own_posts: posts.status === 'fulfilled' ? posts.value.posts : [] };
+  f.error = [score, posts, rules].filter((r) => r.status === 'rejected').map((r) => r.reason.message).join('；');
   if (settings.status === 'fulfilled') state.settings = settings.value;
 }
 
