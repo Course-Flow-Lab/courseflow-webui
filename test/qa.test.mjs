@@ -19,7 +19,7 @@ test('问答进度区分平台有效数、今天发布数和剩余额度，缺�
 test('问答首屏只读统计和发布记录，草稿在刷新后保留', async () => {
   const state = { route: { pid: 'zhs' }, course: { id: 'course', recruit_id: 'recruit' }, qaCourses: {} };
   const calls = [];
-  const api = async (path) => { calls.push(path); return path.endsWith('/posts') ? { posts: data.own_posts } : path.endsWith('/score') ? data.score : { preferences: { qa_peers: false }, models: [] }; };
+  const api = async (path) => { calls.push(path); return path.endsWith('/posts') ? { posts: data.own_posts } : path.includes('/score?part=') ? data.score : { preferences: { qa_peers: false }, models: [] }; };
   await loadQa(state, api, () => true);
   state.feature.drafts = ['手工编辑草稿']; state.feature.selected = [0];
   await loadQa(state, api, () => true);
@@ -32,4 +32,17 @@ test('超额开关默认不放宽目标，开启后允许超过已有统计且�
   assert.deepEqual(qaSummary(complete,now,true).room,{ask:50,answer:50});
   const html=qaView({feature:{data:complete,drafts:[],selected:[],counts:{ask:30,answer:40}},route:{pid:'zhs'},platforms:[{id:'zhs',operations:['qa','ask']}],bootstrap:{quiet_hours:{active:false}},settings:{preferences:{qa_allow_over_limit:true}}});
   assert.match(html,/有风险/);assert.match(html,/触发平台限制/);assert.match(html,/答 40 条/);assert.match(html,/允许超额问答（有风险）[^>]*aria-checked="true"/);
+});
+
+
+test('考核规则失败不清空已返回的问答计数', async () => {
+  const state = { route: { pid: 'zhs' }, course: { id: 'course', recruit_id: 'recruit' } };
+  await loadQa(state, async path => {
+    if (path.endsWith('part=interaction')) return { qa: { validQuestionAmount: 0, validAnswerAmount: '12' } };
+    if (path.endsWith('part=rules')) throw Error('规则暂不可用');
+    if (path.endsWith('/posts')) return { posts: [] };
+    return {};
+  }, () => true);
+  assert.deepEqual(qaSummary(state.feature.data).counts, { ask: 0, answer: 12, received: null });
+  assert.match(state.feature.error, /规则暂不可用/);
 });
