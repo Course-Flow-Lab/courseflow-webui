@@ -48,13 +48,13 @@ nginx -p /绝对路径/网关目录/ -c /绝对路径/nginx.conf
 
 后端设置 `CF_BIND=127.0.0.1:8101` 和 `CF_PUBLIC_URL=http://127.0.0.1:8100`。网关保留 Cookie、Origin 和编码路径，API 超时为 300 秒；HTML 配置 CSP，未知文件返回 404。只托管 `dist/`，不要公开源码、数据或主密钥。Nginx 是部署选择，不是 Framework 的依赖。
 
-前端和后端分别保存发布目录、提交编号和回退版本。已有数据与主密钥留在后端原数据目录。完整更新和回退步骤见 [后端本机部署说明](https://github.com/Course-Flow-Lab/courseflow-framework/blob/feat/separate-webui/docs/LOCAL-DEPLOYMENT.md)。
+前端和后端分别保存发布目录、提交编号和回退版本。已有数据与主密钥留在后端原数据目录。完整更新和回退步骤见 [后端本机部署说明](https://github.com/Course-Flow-Lab/courseflow-framework/blob/main/docs/LOCAL-DEPLOYMENT.md)。
 
 ## 接口边界
 
 当前要求 `web_api_version: 1`；Framework 0.1.7 开始显式提供该字段。缺失或版本不匹配时显示中文提示，不继续初始化界面。`module_api` 是另一套平台模块协议，前端不以它判断 HTTP 兼容性。
 
-请求使用相对路径、同源 Cookie 和写入请求的 CSRF 标头。图片、日志和报告也经 `/api/*` 下载。接口清单、错误形式和会话规则见 [Web API 文档](https://github.com/Course-Flow-Lab/courseflow-framework/blob/feat/separate-webui/docs/WEB-API.md)。
+请求使用相对路径、同源 Cookie 和写入请求的 CSRF 标头。图片、日志和报告也经 `/api/*` 下载。接口清单、错误形式和会话规则见 [Web API 文档](https://github.com/Course-Flow-Lab/courseflow-framework/blob/main/docs/WEB-API.md)。
 
 未来桌面或手机 App 可以装载此构建产物，并由宿主启动后端；本仓库不承担 App 生命周期或平台模块运行适配。
 
