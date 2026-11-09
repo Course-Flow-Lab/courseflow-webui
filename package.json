@@ -1,0 +1,17 @@
+{
+  "name": "courseflow-webui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Courseflow 独立网页工作台",
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "node scripts/check-web.mjs",
+    "test": "node --test test/"
+  },
+  "devDependencies": { "vite": "8.3.6" }
+}
