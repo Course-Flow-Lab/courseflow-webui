@@ -28,9 +28,10 @@ test('注册表单随策略调整必填项，首次初始化不暴露注册切�
   assert.doesNotMatch(setup, /href="#\/register"|name="invitation_code"/);
 });
 
-test('管理员可从桌面与手机账号页进入邀请管理，成员不显示管理入口或数据', () => {
+test('侧栏管理入口统一到站点管理，邀请页面可访问且成员不显示管理入口或数据', () => {
   const state = adminState();
-  assert.match(navigation(state), /href="#\/invitations"/);
+  assert.match(navigation(state), /href="#\/admin\/users"[^>]*aria-current="page"/);
+  assert.doesNotMatch(navigation(state), /href="#\/(?:invitations|modules)"/);
   assert.match(accountView(state), /href="#\/invitations"/);
   state.invitationAdmin.invitations = [{ id: 'synthetic-id', code_hint: '<unsafe-code>', created_by: '<unsafe-user>', created_at: 1, used_by: null, used_at: null, revoked_at: null }];
   const html = invitationsView(state);
