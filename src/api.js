@@ -65,6 +65,7 @@ export function parseRoute(hash) {
       }
       return { page: 'courses', pid: parts[1] };
     }
+    if (parts[0] === 'admin') return { page: 'admin', tab: parts[1] || 'users' };
     if (['tasks', 'connections', 'modules', 'account', 'settings', 'logs', 'invitations', 'login', 'register'].includes(parts[0])) return { page: parts[0] };
   } catch { /* A malformed hash is an unknown page, never a broken application. */ }
   return { page: 'not-found' };
