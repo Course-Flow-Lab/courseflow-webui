@@ -2,6 +2,7 @@ import { createApi, platformPath, coursePath, parseRoute } from './api.js';
 import * as view from './views.js';
 import * as features from './features.js';
 import { captureQa, qaChange } from './qa.js';
+import { adminView, loadAdmin, adminAction, adminFormIds, submitAdmin, adminTaskView, adminUsersList } from './admin.js';
 import { logsView, submitLogs } from './logs.js';
 import { invitationsView, loadInvitations, invitationFormIds, submitInvitations, invitationAction } from './invitations.js';
 import { WEBUI_VERSION } from './version.js';
@@ -11,7 +12,7 @@ const state = {
   me: null, csrf: '', bootstrap: null, platforms: [], modules: [], tasks: [],
   courseLists: {}, courseErrors: {}, course: null, units: [], presentation: null,
   settings: null, feature: null, qaCourses: {}, selected: new Set(), route: parseRoute(location.hash), loading: false,
-  search: '', filter: 'all', taskFilter: 'all', modal: null, invitationAdmin: null, generatedInvitations: [],
+  search: '', filter: 'all', taskFilter: 'all', modal: null, invitationAdmin: null, generatedInvitations: [], admin: null,
 };
 let routeGeneration = 0;
 let sessionGeneration = 0;
@@ -54,7 +55,7 @@ function expireSession() {
   routeGeneration += 1;
   clearTimeout(refreshTimer);
   closeModal();
-  Object.assign(state, { me: null, csrf: '', platforms: [], modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, selected: new Set(), invitationAdmin: null, generatedInvitations: [] });
+  Object.assign(state, { me: null, csrf: '', platforms: [], modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, selected: new Set(), invitationAdmin: null, generatedInvitations: [], admin: null });
   $('#workspace').hidden = true;
   $('#page').replaceChildren();
   $('#auth').hidden = false;
@@ -74,7 +75,7 @@ function renderNavigation() {
   $('#sidebar-nav').innerHTML = view.navigation(state);
   $('#account-link').innerHTML = `<span class="avatar">${view.esc([...state.me.user.username][0].toUpperCase())}</span><span><strong>${view.esc(state.me.user.username)}</strong><small>${state.me.user.role === 'admin' ? '管理员' : '成员'}</small></span><span class="spacer"></span><span class="muted">⌄</span>`;
   $('#mobile-nav').innerHTML = [['courses', '课程', 'grid'], ['tasks', '任务', 'tasks'], ['connections', '连接', 'link'], ['account', '我的', 'user']].map(([page, label, icon]) => `<a href="#/${page}" class="${state.route.page === page || page === 'courses' && state.route.page === 'course' ? 'active' : ''}">${view.icon(icon)}<span>${label}</span></a>`).join('');
-  const name = ({ courses: '所有课程', course: state.course?.name || '课程目录', tasks: '任务中心', connections: '平台连接', modules: '模块管理', account: '我的账号', settings: '模型与任务设置', logs: '日志导出', invitations: '注册与邀请' })[state.route.page] || '页面不存在';
+  const name = ({ courses: '所有课程', course: state.course?.name || '课程目录', tasks: '任务中心', connections: '平台连接', modules: '模块管理', account: '我的账号', settings: '模型与任务设置', logs: '日志导出', invitations: '注册与邀请', admin: '站点管理' })[state.route.page] || '页面不存在';
   const platform = state.platforms.find((p) => p.id === state.route.pid);
   $('#breadcrumb').innerHTML = `<a href="#/courses">工作台</a><span>/</span>${platform ? `<a href="#/platform/${encodeURIComponent(platform.id)}">${view.esc(platform.name)}</a><span>/</span>` : ''}<strong>${view.esc(state.route.page === 'courses' && platform ? '课程' : name)}</strong>`;
   document.title = `${state.route.page === 'courses' && platform ? platform.name : name} · Courseflow`;
@@ -96,7 +97,7 @@ function renderTasks() {
 function renderPage() {
   if (!state.me) return;
   const render = ({ courses: view.coursesView, course: (s) => view.courseView(s, features.courseContent(s)), tasks: view.tasksView,
-    connections: view.connectionsView, modules: view.modulesView, account: view.accountView, settings: features.settingsView, logs: logsView, invitations: invitationsView })[state.route.page];
+    connections: view.connectionsView, modules: view.modulesView, account: view.accountView, settings: features.settingsView, logs: logsView, invitations: invitationsView, admin: adminView })[state.route.page];
   $('#page').innerHTML = render ? render(state) : view.empty('这个页面不存在', '从课程工作台继续浏览。', '<a class="button primary" href="#/courses">返回课程</a>');
   renderNavigation();
   renderTasks();
@@ -160,10 +161,12 @@ async function loadRoute(force = false) {
   state.presentation = null;
   state.selected = new Set();
   $('#page-error').hidden = true;
-  state.loading = ['courses', 'course', 'settings', 'invitations'].includes(state.route.page);
+  state.loading = ['courses', 'course', 'settings', 'invitations', 'admin'].includes(state.route.page);
   renderPage();
   try {
-    if (state.route.page === 'courses') {
+    if (state.route.page === 'admin') {
+      await loadAdmin(state, api, () => generation === routeGeneration && Boolean(state.me));
+    } else if (state.route.page === 'courses') {
       await loadCourses(state.platforms.filter((p) => !state.route.pid || state.route.pid === p.id), force);
     } else if (state.route.page === 'course') {
       const route = { ...state.route };
@@ -233,6 +236,12 @@ function scheduleRefresh() {
       if (!document.hidden) {
         await refreshTasks();
         refreshCount += 1;
+        if (state.route.page === 'admin' && state.route.tab === 'tasks' && !state.modal && !document.activeElement?.closest('form')) {
+          const generation = routeGeneration, who = state.me;
+          const current = () => generation === routeGeneration && state.me === who;
+          await loadAdmin(state, api, current);
+          if (current()) renderPage();
+        }
         if (state.me && refreshCount % 5 === 0) {
           await refreshConnections();
           if (['connections', 'modules', 'account'].includes(state.route.page) && !state.modal) renderPage();
@@ -340,7 +349,7 @@ async function pollChallenge(pid, handle, generation) {
   }
 }
 
-function featureContext() { return { state, api, openModal, closeModal, renderPage, refreshTasks, showTask, toast, loadRoute }; }
+function featureContext() { return { state, api, openModal, closeModal, renderPage, refreshTasks, showTask, showAdminTask, expireSession, toast, loadRoute }; }
 
 async function showTask(id) {
   const modalVersion = challengeGeneration;
@@ -349,6 +358,13 @@ async function showTask(id) {
   const result = await api('/api/tasks/' + encodeURIComponent(id));
   if (generation !== sessionGeneration || route !== routeGeneration || modalVersion !== challengeGeneration) return;
   openModal('task', features.taskDetail(result, state.bootstrap.quiet_hours.active), { id, taskState: result.task.state });
+}
+
+async function showAdminTask(id) {
+  const modalVersion = challengeGeneration, generation = sessionGeneration, route = routeGeneration;
+  const result = await api('/api/admin/tasks/' + encodeURIComponent(id));
+  if (generation !== sessionGeneration || route !== routeGeneration || modalVersion !== challengeGeneration || state.me?.user.role !== 'admin') return;
+  openModal('admin-task', adminTaskView(result), { id });
 }
 
 function renderCourseSearch() {
@@ -362,6 +378,7 @@ function renderCourseSearch() {
 
 document.addEventListener('input', (event) => {
   if (event.target.matches('[data-draft]')) qaChange({ name: 'draft-selected' }, state);
+  if (event.target.id === 'admin-user-search') { state.admin.search = event.target.value; $('#admin-user-list').innerHTML = adminUsersList(state); }
   if (event.target.id === 'course-search') { state.search = event.target.value; renderCourseSearch(); }
 });
 
@@ -381,7 +398,7 @@ document.addEventListener('change', (event) => {
 
 document.addEventListener('submit', async (event) => {
   const form = event.target;
-  if (!(form instanceof HTMLFormElement) || ![...features.formIds, ...invitationFormIds, 'auth-form', 'install-form', 'config-form', 'login-form', 'logs-form'].includes(form.id)) return;
+  if (!(form instanceof HTMLFormElement) || ![...features.formIds, ...invitationFormIds, ...adminFormIds, 'auth-form', 'install-form', 'config-form', 'login-form', 'logs-form'].includes(form.id)) return;
   event.preventDefault();
   if (pending.has(form.id)) return;
   pending.add(form.id);
@@ -392,6 +409,7 @@ document.addEventListener('submit', async (event) => {
   const data = Object.fromEntries(new FormData(form));
   try {
     if (form.id === 'logs-form') await submitLogs(form, api, toast);
+    else if (adminFormIds.includes(form.id)) await submitAdmin(form, featureContext());
     else if (invitationFormIds.includes(form.id)) await submitInvitations(form, featureContext());
     else if (features.formIds.includes(form.id)) await features.submit(form, featureContext());
     else if (form.id === 'auth-form') {
@@ -441,6 +459,7 @@ document.addEventListener('click', async (event) => {
   pending.add(key);
   target.disabled = true;
   try {
+    if (await adminAction(target, featureContext())) return;
     if (await features.action(target, featureContext())) return;
     if (await invitationAction(target, featureContext())) return;
     if (action === 'theme') setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');

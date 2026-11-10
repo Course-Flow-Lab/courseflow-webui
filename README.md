@@ -1,6 +1,6 @@
 # Courseflow WebUI
 
-Courseflow 的独立网页工作台，使用原生 JavaScript、HTML、CSS 和 Vite。提供课程、任务、问答、成绩分析、模块管理、注册邀请和日志导出界面；所有业务请求均通过 [Framework](https://github.com/Course-Flow-Lab/courseflow-framework) 的 HTTP API 完成。
+Courseflow 的独立网页工作台，使用原生 JavaScript、HTML、CSS 和 Vite。提供课程、任务、问答、成绩分析、模块管理、站点管理、注册邀请和日志导出界面；所有业务请求均通过 [Framework](https://github.com/Course-Flow-Lab/courseflow-framework) 的 HTTP API 完成。
 
 前端不读取数据库，不运行平台模块，不保存平台凭据。页面从模块能力描述生成入口，平台实现继续由后端装载。
 
@@ -68,3 +68,10 @@ scripts/         语法检查
 deploy/          同源静态托管与 API 代理配置
 vite.config.js   开发代理、构建与版本信息
 ```
+
+
+## 站点管理与日志
+
+管理员可从侧栏或「我的账号」打开 `#/admin/users`。用户页提供创建、搜索、停用、角色、密码和任务上限管理；`#/admin/tasks` 按成员与状态筛选全站任务，支持暂停、继续、停止、调整队列和下载日志；`#/admin/settings` 管理并发上限与跨课程并行许可，并链接邀请、模块和日志页面。
+
+任务详情和课程执行记录仅提供 UTF-8 纯文本 `.log` 下载。课程页导出只包含当前课程；试卷和成绩单继续通过独立的数据导出入口下载。
