@@ -345,7 +345,12 @@ async function pollChallenge(pid, handle, generation) {
     $('#challenge-status').textContent = ({ waiting: '等待平台确认', scanned: '已扫码，等待手机确认', expired: '登录已过期，请关闭后重新连接', failed: '连接失败，请关闭后重试' })[result.state] || '等待平台确认';
     if (!terminal) challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation), 2000);
   } catch (error) {
-    if (generation === challengeGeneration && $('#challenge-status')) $('#challenge-status').textContent = error.message;
+    if (generation === challengeGeneration && $('#challenge-status')) {
+      $('#challenge-status').textContent = error.message;
+      if ([502, 503, 504].includes(error.status) || error.code === 'backend_unavailable') {
+        challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation), 3000);
+      }
+    }
   }
 }
 
