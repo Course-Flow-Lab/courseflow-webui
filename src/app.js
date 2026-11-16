@@ -3,6 +3,7 @@ import * as view from './views.js';
 import * as features from './features.js';
 import { captureQa, qaChange } from './qa.js';
 import { adminView, loadAdmin, adminAction, adminFormIds, submitAdmin, adminTaskView, adminUsersList } from './admin.js';
+import { rememberCourse } from './course-progress.js';
 import { logsView, submitLogs } from './logs.js';
 import { invitationsView, loadInvitations, invitationFormIds, submitInvitations, invitationAction } from './invitations.js';
 import { WEBUI_VERSION } from './version.js';
@@ -183,7 +184,8 @@ async function loadRoute(force = false) {
         state.course = result.course;
         state.units = result.units;
         state.presentation = result.ui;
-      } else { const result = await api(coursePath(route.pid, course) + '/details'); if (generation !== routeGeneration) return; state.course = course; state.presentation = result.ui; }
+      } else { const result = await api(coursePath(route.pid, course) + '/details'); if (generation !== routeGeneration) return; state.course = result.course ?? course; state.presentation = result.ui; }
+      rememberCourse(state, route.pid, state.course);
       await features.load(state, api, () => generation === routeGeneration && Boolean(state.me), () => { if (generation === routeGeneration && state.me) { state.loading = false; renderPage(); } });
     } else if (state.route.page === 'settings') await features.load(state, api, () => generation === routeGeneration && Boolean(state.me), () => { if (generation === routeGeneration && state.me) { state.loading = false; renderPage(); } });
     else if (state.route.page === 'invitations' && state.me.user.role === 'admin') await loadInvitations(state, api, () => generation === routeGeneration && Boolean(state.me));

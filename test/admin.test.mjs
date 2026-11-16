@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adminView, loadAdmin, adminAction, adminTaskView } from '../src/admin.js';
+import { adminView, loadAdmin, adminAction, adminTaskView, adminTaskActions } from '../src/admin.js';
 import { accountView, navigation } from '../src/views.js';
 import { taskDetail, courseContent } from '../src/features.js';
 import { parseRoute } from '../src/api.js';
@@ -38,6 +38,43 @@ test('全站任务操作使用管理员接口，详情与日志保留不透明�
     return path.endsWith('/overview') ? s.admin.overview : path.endsWith('/users') ? { users: s.admin.users } : { tasks: [], total: 0, limit: 100, offset: 0 };
   }, renderPage: () => {}, toast: () => {} });
   assert.equal(calls[0][0], '/api/admin/tasks/task%2F%E4%B8%AD%E6%96%87/pause'); assert.equal(calls[0][1].method, 'POST');
+});
+
+test('全站任务显式选择排序，创建和更新时间可见，执行中的任务先停止再删除', async () => {
+  const s = state(); s.route.tab = 'tasks'; s.admin.taskSort = 'oldest';
+  s.admin.tasks = { tasks: [task], total: 1, offset: 0, limit: 100 };
+  const html = adminView(s);
+  assert.match(html, /name="sort"/); assert.match(html, /value="oldest" selected/);
+  assert.match(html, /创建于/); assert.match(html, /更新于/);
+  assert.match(html, /admin-task-delete/);
+  assert.match(adminTaskActions({ ...task, state: 'running' }), /admin-task-delete[^>]+disabled/);
+  const requests = [];
+  await loadAdmin(s, async path => {
+    requests.push(path);
+    return path.endsWith('/overview') ? s.admin.overview : path.endsWith('/users') ? { users: s.admin.users } : s.admin.tasks;
+  });
+  assert.ok(requests.some(path => path.includes('/api/admin/tasks?') && new URLSearchParams(path.split('?')[1]).get('sort') === 'oldest'));
+});
+
+test('管理员删除需要确认，使用 DELETE 并移除详情及旧列表，末页删除后回上一页', async t => {
+  const s = state(); s.route.tab = 'tasks'; s.modal = { kind: 'admin-task' }; s.tasks = [task];
+  s.admin.offset = 100; s.admin.tasks = { tasks: [task], total: 101, offset: 100, limit: 100 };
+  const calls = []; let confirmed = false, closed = 0, rendered = 0;
+  const previousConfirm = globalThis.confirm;
+  globalThis.confirm = () => confirmed;
+  t.after(() => { if (previousConfirm === undefined) delete globalThis.confirm; else globalThis.confirm = previousConfirm; });
+  const context = { state: s, api: async (path, options) => {
+    calls.push([path, options]);
+    if (options?.method === 'DELETE') return { deleted: true, id: task.id };
+    return path.endsWith('/overview') ? s.admin.overview : path.endsWith('/users') ? { users: s.admin.users } : { tasks: [], total: 100, offset: 0, limit: 100 };
+  }, closeModal: () => { closed++; s.modal = null; }, renderPage: () => { rendered++; }, toast: () => {} };
+  const target = { dataset: { action: 'admin-task-delete', id: task.id } };
+  await adminAction(target, context); assert.equal(calls.length, 0);
+  confirmed = true; await adminAction(target, context);
+  assert.equal(calls[0][0], '/api/admin/tasks/task%2F%E4%B8%AD%E6%96%87');
+  assert.equal(calls[0][1].method, 'DELETE');
+  assert.equal(s.admin.offset, 0); assert.equal(s.tasks.length, 0);
+  assert.equal(closed, 1); assert.equal(rendered, 1);
 });
 
 test('退出登录或后到的刷新不能写回管理数据', async () => {

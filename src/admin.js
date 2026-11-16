@@ -14,7 +14,7 @@ export async function loadAdmin(state, api, current = () => true) {
   const revision = state.adminRevision = (state.adminRevision || 0) + 1;
   const data = state.admin ||= { search: '', owner: '', taskState: '', offset: 0, edit: null };
   const tab = state.route.tab || 'users';
-  const query = new URLSearchParams({ offset: String(data.offset), ...(data.owner ? { owner: data.owner } : {}), ...(data.taskState ? { state: data.taskState } : {}) });
+  const query = new URLSearchParams({ offset: String(data.offset), sort: data.taskSort || 'updated', ...(data.owner ? { owner: data.owner } : {}), ...(data.taskState ? { state: data.taskState } : {}) });
   const [overview, users, content] = await Promise.all([api('/api/admin/overview'), api('/api/admin/users'),
     tab === 'tasks' ? api('/api/admin/tasks?' + query) : tab === 'settings' ? api('/api/admin/settings') : null]);
   if (!current() || state.me?.user.role !== 'admin' || revision !== state.adminRevision) return;
@@ -53,14 +53,16 @@ export function adminUsersList(state) {
 }
 
 export function adminTaskActions(task) {
-  return `${['queued', 'running'].includes(task.state) ? button('暂停', 'task-pause', task.id) : ''}${task.state === 'paused' ? button('继续', 'task-resume', task.id) : ''}${active(task) ? button('停止', 'task-stop', task.id) : ''}${task.state === 'queued' ? button('上移', 'task-move', task.id, 'data-direction="up"') + button('下移', 'task-move', task.id, 'data-direction="down"') : ''}`;
+  return `${['queued', 'running'].includes(task.state) ? button('暂停', 'task-pause', task.id) : ''}${task.state === 'paused' ? button('继续', 'task-resume', task.id) : ''}${active(task) ? button('停止', 'task-stop', task.id) : ''}${task.state === 'queued' ? button('上移', 'task-move', task.id, 'data-direction="up"') + button('下移', 'task-move', task.id, 'data-direction="down"') : ''}<button class="button small danger" data-action="admin-task-delete" data-id="${esc(task.id)}"${task.state === 'running' ? ' disabled title="请先停止任务再删除"' : ''}>删除</button>`;
 }
 
 function tasksView(state) {
   const data = state.admin, result = data.tasks;
   if (!result) return loading;
-  return `<section class="panel feature-panel admin-task-filters"><form id="admin-task-filter-form"><label>用户<select name="owner"><option value="">全部用户</option>${data.users.map(user => `<option value="${esc(user.id)}"${data.owner === user.id ? ' selected' : ''}>${esc(user.username)}</option>`).join('')}</select></label><label>状态<select name="state"><option value="">全部状态</option>${[['queued', '排队中'], ['running', '执行中'], ['paused', '已暂停'], ['completed', '已完成'], ['failed', '失败'], ['cancelled', '已停止']].map(([value, label]) => `<option value="${value}"${data.taskState === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>${errorBox}<button class="button primary" type="submit">筛选任务</button></form></section>
-    <div class="section-heading"><h2>全站任务</h2><span class="muted">共 ${result.total} 项 · 队列顺序在各用户内部调整</span></div><div class="task-list">${result.tasks.map(task => `<article class="task-card admin-task"><div class="task-main"><div class="task-title"><button class="title-button" data-action="admin-task-detail" data-id="${esc(task.id)}">${esc(task.course_name || '课程任务')}</button>${badge(task.state)}</div><p class="muted">${esc(task.username)} · ${esc(operationNames[task.operation] || task.operation)} · ${esc(task.platform)}</p><p>${esc(task.detail)}</p>${progress(task.progress)}<div class="task-meta"><span>${task.completed.length} / ${task.units.length} 单元</span><time>${dateText(task.updated_at)}</time></div></div><div class="actions">${adminTaskActions(task)}${button('详情', 'task-detail', task.id)}<a class="button small" href="${taskPath(task.id)}/logs" download>日志</a></div></article>`).join('') || empty('没有匹配的任务', '调整用户或任务状态后再查看。')}</div><div class="admin-pagination">${button('上一页', 'task-page', '', `data-offset="${Math.max(0, result.offset - result.limit)}"${result.offset === 0 ? ' disabled' : ''}`)}<span class="muted">${result.total ? result.offset + 1 : 0}–${Math.min(result.offset + result.limit, result.total)} / ${result.total}</span>${button('下一页', 'task-page', '', `data-offset="${result.offset + result.limit}"${result.offset + result.limit >= result.total ? ' disabled' : ''}`)}</div>`;
+  const sorts = [['updated', '最近更新优先'], ['created', '最新创建优先'], ['oldest', '最早创建优先'], ['state', '执行状态优先']];
+  const sort = data.taskSort || result.sort || 'updated';
+  return `<section class="panel feature-panel admin-task-filters"><form id="admin-task-filter-form"><label>用户<select name="owner"><option value="">全部用户</option>${data.users.map(user => `<option value="${esc(user.id)}"${data.owner === user.id ? ' selected' : ''}>${esc(user.username)}</option>`).join('')}</select></label><label>状态<select name="state"><option value="">全部状态</option>${[['queued', '排队中'], ['running', '执行中'], ['paused', '已暂停'], ['completed', '已完成'], ['failed', '失败'], ['cancelled', '已停止']].map(([value, label]) => `<option value="${value}"${data.taskState === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label><label>排序<select name="sort">${sorts.map(([value, label]) => `<option value="${value}"${sort === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>${errorBox}<button class="button primary" type="submit">筛选任务</button></form></section>
+    <div class="section-heading"><h2>全站任务</h2><span class="muted">共 ${result.total} 项 · ${sorts.find(([value]) => value === sort)?.[1] || '最近更新优先'} · 上下移仅调整所属用户的队列</span></div><div class="task-list">${result.tasks.map(task => `<article class="task-card admin-task"><div class="task-main"><div class="task-title"><button class="title-button" data-action="admin-task-detail" data-id="${esc(task.id)}">${esc(task.course_name || '课程任务')}</button>${badge(task.state)}</div><p class="muted">${esc(task.username)} · ${esc(operationNames[task.operation] || task.operation)} · ${esc(task.platform)}</p><p>${esc(task.detail)}</p>${progress(task.progress)}<div class="task-meta"><span>${task.completed.length} / ${task.units.length} 单元</span><span>创建于 ${dateText(task.created_at ?? task.updated_at)}</span><time>更新于 ${dateText(task.updated_at)}</time></div></div><div class="actions">${adminTaskActions(task)}${button('详情', 'task-detail', task.id)}<a class="button small" href="${taskPath(task.id)}/logs" download>日志</a></div></article>`).join('') || empty('没有匹配的任务', '调整用户、状态或排序后再查看。')}</div><div class="admin-pagination">${button('上一页', 'task-page', '', `data-offset="${Math.max(0, result.offset - result.limit)}"${result.offset === 0 ? ' disabled' : ''}`)}<span class="muted">${result.total ? result.offset + 1 : 0}–${Math.min(result.offset + result.limit, result.total)} / ${result.total}</span>${button('下一页', 'task-page', '', `data-offset="${result.offset + result.limit}"${result.offset + result.limit >= result.total ? ' disabled' : ''}`)}</div>`;
 }
 
 function settingsView(state) {
@@ -90,7 +92,7 @@ export async function submitAdmin(form, ctx) {
     if (current()) state.admin.edit = null;
     message = kind === 'password' ? '密码已重置，旧登录会话已撤销。' : '用户设置已保存。';
   } else if (form.id === 'admin-settings-form') await api('/api/admin/settings', { method: 'POST', body: { max_concurrency: Number(body.max_concurrency), parallel_study: form.elements.parallel_study.checked } });
-  else { state.admin.owner = body.owner; state.admin.taskState = body.state; state.admin.offset = 0; }
+  else { state.admin.owner = body.owner; state.admin.taskState = body.state; state.admin.taskSort = body.sort || 'updated'; state.admin.offset = 0; }
   if (!current()) return;
   if (form.id !== 'admin-task-filter-form') toast(message);
   await loadAdmin(state, api, current);
@@ -121,6 +123,18 @@ export async function adminAction(target, ctx) {
     if (current()) toast(stop ? '用户任务已全部停止。' : '用户任务已全部暂停。');
   } else if (action.startsWith('admin-task-')) {
     const operation = action.slice('admin-task-'.length);
+    if (operation === 'delete') {
+      if (!confirm('删除此任务及本站的执行记录？平台上的学习进度、草稿和作答记录会保留。')) return true;
+      await api(taskPath(id), { method: 'DELETE' });
+      if (!current()) return true;
+      if (state.modal?.kind === 'admin-task') ctx.closeModal?.();
+      if (state.tasks) state.tasks = state.tasks.filter(task => task.id !== id);
+      if (data.tasks?.tasks.length === 1 && data.offset > 0) data.offset = Math.max(0, data.offset - data.tasks.limit);
+      toast('任务已删除。');
+      await loadAdmin(state, api, current);
+      if (current()) renderPage();
+      return true;
+    }
     if (operation === 'stop' && !confirm('停止此任务？停止后不能继续此任务。')) return true;
     await api(taskPath(id) + '/' + operation, { method: 'POST', ...(operation === 'move' ? { body: { direction: target.dataset.direction } } : {}) });
     if (current() && state.modal?.kind === 'admin-task') await showAdminTask(id);
