@@ -1,4 +1,5 @@
 import { courseHref } from './api.js';
+import { courseProgress } from './course-progress.js';
 
 export const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -73,7 +74,10 @@ export function coursesView(state) {
 
 export function courseCards(courses, total) {
   if (!courses.length) return empty('没有找到匹配的课程', '试试其他关键词或筛选条件。', '<button class="button" data-action="clear-search">清除筛选</button>', 'search');
-  return `<div class="course-grid">${courses.map((course) => `<a class="course-card" href="${courseHref(course.platform.id, course)}"><div class="course-card-top"><span class="course-symbol">${icon('book')}</span><span class="tag">${esc(course.kind_label || course.kind)}</span></div><h2>${esc(course.name)}</h2><p class="course-platform"><span class="status-dot"></span>${esc(course.platform.name)}</p><div class="course-progress-label"><span>${course.progress_source === 'units' ? '目录完成度' : '学习进度'}</span><strong>${course.progress == null ? '平台未提供' : Math.round(percent(course.progress)) + '%'}</strong></div>${progress(course.progress, course.name + '学习进度')}<div class="course-card-foot"><span>${course.outline_available ? '查看课程目录' : '查看课程信息'}</span>${icon('arrow')}</div></a>`).join('')}</div><p class="list-foot">显示 ${courses.length} 门课程 · 共 ${total} 门</p>`;
+  return `<div class="course-grid">${courses.map((course) => {
+    const info = courseProgress(course);
+    return `<a class="course-card" href="${courseHref(course.platform.id, course)}"><div class="course-card-top"><span class="course-symbol">${icon('book')}</span><span class="tag">${esc(course.kind_label || course.kind)}</span></div><h2>${esc(course.name)}</h2><p class="course-platform"><span class="status-dot"></span>${esc(course.platform.name)}</p><div class="course-progress-label"><span>${esc(info.label)}</span><strong>${esc(info.text)}</strong></div>${info.value === null ? '' : progress(info.value, course.name + info.label)}<div class="course-card-foot"><span>${course.outline_available ? '查看课程目录' : '查看课程信息'}</span>${icon('arrow')}</div></a>`;
+  }).join('')}</div><p class="list-foot">显示 ${courses.length} 门课程 · 共 ${total} 门</p>`;
 }
 
 export function courseView(state, featureContent = null) {
@@ -83,6 +87,7 @@ export function courseView(state, featureContent = null) {
   const platform = state.platforms.find((p) => p.id === state.route.pid);
   const pending = state.units.filter((u) => u.selectable && u.state !== 'completed');
   const done = state.units.filter((u) => u.state === 'completed').length;
+  const progressInfo = courseProgress(course, course.outline_available ? state.units : undefined);
   const tabs = [{ id: 'study', label: '学习目录' }, ...(state.presentation?.tabs || []).filter((t) => t.id !== 'study')];
   const chapters = new Map();
   for (const unit of state.units) {
@@ -92,7 +97,7 @@ export function courseView(state, featureContent = null) {
   }
   return `<a class="back-link" href="#/platform/${encodeURIComponent(state.route.pid)}">← 返回${esc(platform?.name || '平台课程')}</a>` +
     heading(course.kind_label || course.kind, course.name, `${platform?.name || ''} · ${state.units.length} 个单元 · ${done} 个已完成`, `<button class="button" data-action="refresh-course">${icon('refresh')}刷新目录</button>`) +
-    `<div class="detail-overview"><div><span class="muted">${course.progress_source === 'units' ? '目录完成度' : '课程进度'}</span><strong>${course.progress == null ? '平台未提供' : Math.round(percent(course.progress)) + '%'}</strong></div>${progress(course.progress)}<span class="muted">${done} / ${state.units.length} 单元已完成</span></div><div class="detail-tabs" aria-label="课程功能">${tabs.map((t) => `<a href="${courseHref(state.route.pid, course)}${t.id === 'study' ? '' : '/' + encodeURIComponent(t.id)}" class="${t.id === (state.route.tab || 'study') ? 'active' : ''}">${esc(t.label)}</a>`).join('')}</div>${featureContent !== null ? featureContent : ''}
+    `<div class="detail-overview"><div><span class="muted">${esc(progressInfo.label)}</span><strong>${esc(progressInfo.text)}</strong></div>${progressInfo.value === null ? '' : progress(progressInfo.value)}${progressInfo.value !== null && state.units.length ? `<span class="muted">${done} / ${state.units.length} 单元已完成</span>` : ''}</div><div class="detail-tabs" aria-label="课程功能">${tabs.map((t) => `<a href="${courseHref(state.route.pid, course)}${t.id === 'study' ? '' : '/' + encodeURIComponent(t.id)}" class="${t.id === (state.route.tab || 'study') ? 'active' : ''}">${esc(t.label)}</a>`).join('')}</div>${featureContent !== null ? featureContent : ''}
     ${featureContent !== null ? '' : `
     ${!course.outline_available ? '<div class="banner">此课程的目录暂未由平台模块提供。</div>' : ''}
     ${state.units.length ? `<div class="selection-toolbar"><label class="check-label"><input id="select-all" type="checkbox"${pending.length && pending.every((u) => state.selected.has(u.id)) ? ' checked' : ''}${pending.length ? '' : ' disabled'}>选择未完成单元</label><span id="selection-count" class="muted">已选择 ${state.selected.size} 个</span><span class="spacer"></span>${state.me?.user?.role === 'admin' && platform?.operations.includes('trial') && state.presentation?.actions?.some((a) => a.id === 'trial') ? '<button class="button" data-action="feature-job" data-operation="trial" title="管理员诊断：检查单个视频的进度保存">短时试跑</button>' : ''}<button id="study-button" class="button primary" data-action="study"${!state.selected.size || state.bootstrap.quiet_hours.active || !state.bootstrap.capabilities.jobs.includes('study') || !platform?.operations.includes('study') ? ' disabled' : ''}>${icon('play')}开始学习</button></div>
