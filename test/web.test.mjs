@@ -36,3 +36,19 @@ test('course feature tabs navigate and completed units cannot be selected', () =
   assert.ok(!html.includes('待接入'));
   assert.match(html, /data-unit="done" disabled/);
 });
+
+test('短时试跑只在管理员的课程页显示', () => {
+  const state = {
+    loading: false, route: { pid: 'example' }, me: { user: { role: 'user' } },
+    course: { name: '合成课程', outline_available: true, kind: 'shared' },
+    platforms: [{ id: 'example', name: '合成平台', operations: ['study', 'trial'] }],
+    units: [{ id: 'pending', name: '未完成视频', state: 'not_started', selectable: true, kind: 'video' }],
+    presentation: { actions: [{ id: 'trial' }] }, selected: new Set(['pending']),
+    bootstrap: { quiet_hours: { active: false }, capabilities: { jobs: ['study', 'trial'] } },
+  };
+  assert.doesNotMatch(courseView(state), /data-operation="trial"/);
+  assert.match(courseView(state), /id="study-button"/);
+  state.me.user.role = 'admin';
+  assert.match(courseView(state), /data-operation="trial"/);
+  assert.match(courseView(state), /管理员诊断/);
+});
