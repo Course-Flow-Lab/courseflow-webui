@@ -86,4 +86,4 @@ WebUI 0.1.3 配合 Framework 0.1.12 提供团队账号。管理员在「站点�
 
 每个平台展示当前选中账号的课程。平台及课程深链使用 `account_id` 查询参数，API、数据导出和课程日志保留绑定选择。任务创建后固定账号，界面切换不会更改运行中的任务；问答草稿按绑定及课程分别保留。团队共用站点模型及任务偏好，不获得管理员权限。
 
-完整用法和数据库升级说明见 [团队账号手册](https://github.com/Course-Flow-Lab/courseflow-framework/blob/feat/team-accounts/docs/TEAM-ACCOUNTS.md)。
+完整用法和数据库升级说明见 [团队账号手册](https://github.com/Course-Flow-Lab/courseflow-framework/blob/main/docs/TEAM-ACCOUNTS.md)。正式发行配套 Framework 0.1.13；数据库升级前先备份，详见手册。
