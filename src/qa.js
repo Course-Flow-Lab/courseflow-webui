@@ -24,7 +24,7 @@ export function qaSummary(data, now = Date.now() / 1000, allowOverLimit = false)
 export const qaBudget = state => qaSummary(state.feature?.data, undefined, state.settings?.preferences.qa_allow_over_limit === true);
 
 export async function loadQa(state, api, current) {
-  const key = JSON.stringify([state.route.pid, state.course.id, state.course.recruit_id]);
+  const key = JSON.stringify([state.route.pid, state.course.id, state.course.recruit_id, state.course.account_id ?? null]);
   state.qaCourses ??= {};
   const f = state.feature = state.qaCourses[key] ??= { tab: 'qa', data: null, drafts: [], selected: [], counts: { ask: 3, answer: 5 }, topic: '' };
   const root = coursePath(state.route.pid, state.course);

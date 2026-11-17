@@ -1,5 +1,6 @@
-import { createApi, platformPath, coursePath, parseRoute } from './api.js';
+import { createApi, platformPath, coursePath, parseRoute, platformHref, withAccount } from './api.js';
 import * as view from './views.js';
+import { applyPlatforms, selectAccount, roleName } from './accounts.js';
 import * as features from './features.js';
 import { captureQa, qaChange } from './qa.js';
 import { adminView, loadAdmin, adminAction, adminFormIds, submitAdmin, adminTaskView, adminUsersList } from './admin.js';
@@ -24,7 +25,7 @@ let toastTimer;
 let refreshCount = 0;
 let focusSearch = false;
 const pending = new Set();
-const api = createApi(() => state.csrf, expireSession);
+const api = createApi(() => state.csrf, expireSession, pid => state.accountSelection?.[pid]);
 
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -56,7 +57,7 @@ function expireSession() {
   routeGeneration += 1;
   clearTimeout(refreshTimer);
   closeModal();
-  Object.assign(state, { me: null, csrf: '', platforms: [], modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, selected: new Set(), invitationAdmin: null, generatedInvitations: [], admin: null });
+  Object.assign(state, { me: null, csrf: '', platforms: [], accountSelection: {}, accountQuota: null, modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, selected: new Set(), invitationAdmin: null, generatedInvitations: [], admin: null });
   $('#workspace').hidden = true;
   $('#page').replaceChildren();
   $('#auth').hidden = false;
@@ -74,7 +75,7 @@ function renderAuth() {
 function renderNavigation() {
   if (!state.me) return;
   $('#sidebar-nav').innerHTML = view.navigation(state);
-  $('#account-link').innerHTML = `<span class="avatar">${view.esc([...state.me.user.username][0].toUpperCase())}</span><span><strong>${view.esc(state.me.user.username)}</strong><small>${state.me.user.role === 'admin' ? '管理员' : '成员'}</small></span><span class="spacer"></span><span class="muted">⌄</span>`;
+  $('#account-link').innerHTML = `<span class="avatar">${view.esc([...state.me.user.username][0].toUpperCase())}</span><span><strong>${view.esc(state.me.user.username)}</strong><small>${roleName(state.me.user.role)}</small></span><span class="spacer"></span><span class="muted">⌄</span>`;
   $('#mobile-nav').innerHTML = [['courses', '课程', 'grid'], ['tasks', '任务', 'tasks'], ['connections', '连接', 'link'], ['account', '我的', 'user']].map(([page, label, icon]) => `<a href="#/${page}" class="${state.route.page === page || page === 'courses' && state.route.page === 'course' ? 'active' : ''}">${view.icon(icon)}<span>${label}</span></a>`).join('');
   const name = ({ courses: '所有课程', course: state.course?.name || '课程目录', tasks: '任务中心', connections: '平台连接', modules: '模块管理', account: '我的账号', settings: '模型与任务设置', logs: '日志导出', invitations: '注册与邀请', admin: '站点管理' })[state.route.page] || '页面不存在';
   const platform = state.platforms.find((p) => p.id === state.route.pid);
@@ -122,7 +123,7 @@ async function loadWorkspace() {
     api('/api/platforms'), api('/api/tasks'), me.user.role === 'admin' ? api('/api/modules') : { modules: [] },
   ]);
   if (generation !== sessionGeneration) return;
-  state.platforms = platforms.platforms;
+  applyPlatforms(state, platforms);
   state.tasks = tasks.tasks;
   state.modules = modules.modules; state.builtinModules = modules.builtins || [];
   $('#auth').hidden = true;
@@ -137,13 +138,15 @@ async function loadWorkspace() {
 async function loadCourses(platforms, force = false) {
   const generation = sessionGeneration;
   const targets = platforms.filter((p) => p.connected && (force || !state.courseLists[p.id] || state.courseErrors[p.id]));
+  const selections = targets.map(p => p.account_id);
   const results = await Promise.allSettled(targets.map((p) => api(platformPath(p.id) + '/courses')));
   if (generation !== sessionGeneration) return;
   for (let index = 0; index < targets.length; index += 1) {
     const pid = targets[index].id;
+    if (selections[index] !== state.accountSelection?.[pid]) { if (targets[index].accounts) continue; }
     const result = results[index];
     if (result.status === 'fulfilled') {
-      state.courseLists[pid] = result.value.courses;
+      state.courseLists[pid] = result.value.courses.map(course => ({ ...course, ...(targets[index].account_id ? { account_id: targets[index].account_id } : {}) }));
       delete state.courseErrors[pid];
     } else {
       state.courseErrors[pid] = result.reason.message;
@@ -165,6 +168,7 @@ async function loadRoute(force = false) {
   state.loading = ['courses', 'course', 'settings', 'invitations', 'admin'].includes(state.route.page);
   renderPage();
   try {
+    if (state.route.accountId) selectAccount(state, state.route.pid, state.route.accountId);
     if (state.route.page === 'admin') {
       await loadAdmin(state, api, () => generation === routeGeneration && Boolean(state.me));
     } else if (state.route.page === 'courses') {
@@ -181,10 +185,10 @@ async function loadRoute(force = false) {
       if (course.outline_available) {
         const result = await api(coursePath(route.pid, course) + '/units');
         if (generation !== routeGeneration) return;
-        state.course = result.course;
+        state.course = { ...result.course, ...(platform.account_id ? { account_id: platform.account_id } : {}) };
         state.units = result.units;
         state.presentation = result.ui;
-      } else { const result = await api(coursePath(route.pid, course) + '/details'); if (generation !== routeGeneration) return; state.course = result.course ?? course; state.presentation = result.ui; }
+      } else { const result = await api(coursePath(route.pid, course) + '/details'); if (generation !== routeGeneration) return; state.course = { ...(result.course ?? course), ...(platform.account_id ? { account_id: platform.account_id } : {}) }; state.presentation = result.ui; }
       rememberCourse(state, route.pid, state.course);
       await features.load(state, api, () => generation === routeGeneration && Boolean(state.me), () => { if (generation === routeGeneration && state.me) { state.loading = false; renderPage(); } });
     } else if (state.route.page === 'settings') await features.load(state, api, () => generation === routeGeneration && Boolean(state.me), () => { if (generation === routeGeneration && state.me) { state.loading = false; renderPage(); } });
@@ -198,11 +202,13 @@ async function loadRoute(force = false) {
 
 async function refreshConnections() {
   const generation = sessionGeneration;
-  const [platforms, modules] = await Promise.all([
-    api('/api/platforms'), state.me.user.role === 'admin' ? api('/api/modules') : { modules: [] },
+  const [platforms, modules, me] = await Promise.all([
+    api('/api/platforms'), state.me.user.role === 'admin' ? api('/api/modules') : { modules: [] }, api('/api/me'),
   ]);
   if (generation !== sessionGeneration) return;
-  state.platforms = platforms.platforms;
+  const previousAccount = state.accountSelection?.[state.route.pid];
+  state.me.user = me.user;
+  applyPlatforms(state, platforms);
   state.modules = modules.modules; state.builtinModules = modules.builtins || [];
   for (const pid of Object.keys(state.courseLists)) {
     if (!state.platforms.some((p) => p.id === pid && p.connected)) {
@@ -211,6 +217,7 @@ async function refreshConnections() {
     }
   }
   renderNavigation();
+  if (state.route.pid && previousAccount !== state.accountSelection?.[state.route.pid]) await loadRoute(true);
 }
 
 async function refreshTasks() {
@@ -285,7 +292,8 @@ function closeModal() {
   if ($('#modal').open) $('#modal').close();
 }
 
-async function connect(pid, method) {
+async function connect(pid, method, accountId) {
+  if (accountId) selectAccount(state, pid, accountId);
   const platform = state.platforms.find((p) => p.id === pid);
   const methods = Array.isArray(platform?.login) ? platform.login : [];
   const chosen = method || (methods.includes('qr') ? 'qr' : methods.includes('password') ? 'password' : '');
@@ -295,22 +303,24 @@ async function connect(pid, method) {
 }
 
 async function connectQr(pid) {
+  const accountId = state.accountSelection?.[pid];
   closeModal();
   const generation = challengeGeneration;
-  const result = await api(platformPath(pid) + '/login', { method: 'POST', body: { method: 'qr' } });
+  const result = await api(withAccount(platformPath(pid) + '/login', accountId), { method: 'POST', body: { method: 'qr' } });
   if (generation !== challengeGeneration || !state.me) return;
   const challenge = result.challenge;
   const name = state.platforms.find((p) => p.id === pid)?.name || pid;
   const image = typeof challenge.image === 'string' && /^(data:image\/(png|jpeg|gif|webp|svg\+xml)[;,]|https:\/\/)/i.test(challenge.image) ? challenge.image : '';
-  openModal('login', view.modalFrame(`连接${name}`, `<div class="qr-area">${image ? `<img class="qr" src="${view.esc(image)}" alt="${view.esc(name)}登录二维码">` : '<p>平台尚未提供二维码，请稍后重试。</p>'}<p>使用平台官方应用扫码，并在手机上确认登录。</p><span id="challenge-status" class="badge">等待扫码</span></div>`), { pid });
+  openModal('login', view.modalFrame(`连接${name}`, `<div class="qr-area">${image ? `<img class="qr" src="${view.esc(image)}" alt="${view.esc(name)}登录二维码">` : '<p>平台尚未提供二维码，请稍后重试。</p>'}<p>使用平台官方应用扫码，并在手机上确认登录。</p><span id="challenge-status" class="badge">等待扫码</span></div>`), { pid, accountId });
   const handle = challenge.session || challenge.id;
-  challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation), 1500);
+  challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation, accountId), 1500);
 }
 
 async function connectPassword(pid) {
+  const accountId = state.accountSelection?.[pid];
   closeModal();
   const generation = challengeGeneration;
-  const result = await api(platformPath(pid) + '/login', { method: 'POST', body: { method: 'password' } });
+  const result = await api(withAccount(platformPath(pid) + '/login', accountId), { method: 'POST', body: { method: 'password' } });
   if (generation !== challengeGeneration || !state.me) return;
   const challenge = result.challenge;
   const name = state.platforms.find((p) => p.id === pid)?.name || pid;
@@ -326,31 +336,33 @@ async function connectPassword(pid) {
     const placeholder = field.placeholder ? ` placeholder="${view.esc(field.placeholder)}"` : '';
     return `<label>${view.esc(field.label || field.name)}<input name="${view.esc(field.name)}" type="${type}"${required}${autocomplete}${placeholder}></label>`;
   }).join('');
-  openModal('login', view.modalFrame(`连接${name}`, `<form id="login-form" data-pid="${view.esc(pid)}" data-challenge="${view.esc(handle)}">${inputs}<p class="form-error" role="alert" hidden></p><div class="actions"><button class="button primary" type="submit">登录</button><button class="button" type="button" data-action="modal-close">取消</button></div></form><p><span id="challenge-status" class="badge">等待登录</span></p>`), { pid });
-  challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation), 1500);
+  openModal('login', view.modalFrame(`连接${name}`, `<form id="login-form" data-pid="${view.esc(pid)}" data-challenge="${view.esc(handle)}">${inputs}<p class="form-error" role="alert" hidden></p><div class="actions"><button class="button primary" type="submit">登录</button><button class="button" type="button" data-action="modal-close">取消</button></div></form><p><span id="challenge-status" class="badge">等待登录</span></p>`), { pid, accountId });
+  challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation, accountId), 1500);
 }
 
-async function pollChallenge(pid, handle, generation) {
+async function pollChallenge(pid, handle, generation, accountId) {
   if (generation !== challengeGeneration || !state.me) return;
   try {
-    const result = await api(platformPath(pid) + '/login/' + encodeURIComponent(handle) + '/poll', { method: 'POST' });
+    const result = await api(withAccount(platformPath(pid) + '/login/' + encodeURIComponent(handle) + '/poll', accountId), { method: 'POST' });
     if (generation !== challengeGeneration) return;
     if (result.state === 'connected') {
       closeModal();
+      delete state.courseLists[pid];
+      delete state.courseErrors[pid];
       await refreshConnections();
       toast('平台已连接，可以查看课程了。');
-      location.hash = '#/platform/' + encodeURIComponent(pid);
+      location.hash = platformHref(pid, accountId);
       if (state.route.pid === pid) await loadRoute(true);
       return;
     }
     const terminal = ['expired', 'failed'].includes(result.state);
     $('#challenge-status').textContent = ({ waiting: '等待平台确认', scanned: '已扫码，等待手机确认', expired: '登录已过期，请关闭后重新连接', failed: '连接失败，请关闭后重试' })[result.state] || '等待平台确认';
-    if (!terminal) challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation), 2000);
+    if (!terminal) challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation, accountId), 2000);
   } catch (error) {
     if (generation === challengeGeneration && $('#challenge-status')) {
       $('#challenge-status').textContent = error.message;
       if ([502, 503, 504].includes(error.status) || error.code === 'backend_unavailable') {
-        challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation), 3000);
+        challengeTimer = setTimeout(() => void pollChallenge(pid, handle, generation, accountId), 3000);
       }
     }
   }
@@ -391,6 +403,12 @@ document.addEventListener('input', (event) => {
 
 document.addEventListener('change', (event) => {
   const target = event.target;
+  if (target.matches('#admin-create-user-form [name="role"]')) {
+    const field = $('#admin-team-account-limit');
+    field.hidden = target.value !== 'team';
+    field.querySelector('input').disabled = field.hidden;
+    return;
+  }
   if (qaChange(target, state)) return;
   if (!(target instanceof HTMLInputElement)) return;
   if (target.dataset.unit) {
@@ -405,7 +423,7 @@ document.addEventListener('change', (event) => {
 
 document.addEventListener('submit', async (event) => {
   const form = event.target;
-  if (!(form instanceof HTMLFormElement) || ![...features.formIds, ...invitationFormIds, ...adminFormIds, 'auth-form', 'install-form', 'config-form', 'login-form', 'logs-form'].includes(form.id)) return;
+  if (!(form instanceof HTMLFormElement) || ![...features.formIds, ...invitationFormIds, ...adminFormIds, 'auth-form', 'install-form', 'config-form', 'login-form', 'logs-form', 'platform-account-form'].includes(form.id)) return;
   event.preventDefault();
   if (pending.has(form.id)) return;
   pending.add(form.id);
@@ -426,6 +444,16 @@ document.addEventListener('submit', async (event) => {
       const path = '/api/auth/' + mode;
       await api(path, { method: 'POST', body: data });
       await loadWorkspace();
+    } else if (form.id === 'platform-account-form') {
+      const who = state.me, pid = form.dataset.pid;
+      const result = await api(platformPath(pid) + '/accounts', { method: 'POST', body: { label: data.label } });
+      if (state.me !== who) return;
+      closeModal();
+      await refreshConnections();
+      if (state.me !== who) return;
+      selectAccount(state, pid, result.account.id);
+      renderPage();
+      toast('账号位已添加，选择登录方式完成连接。');
     } else if (form.id === 'install-form') {
       await api('/api/modules/install', { method: 'POST', body: { path: data.path.trim() } });
       closeModal();
@@ -435,12 +463,14 @@ document.addEventListener('submit', async (event) => {
     } else if (form.id === 'login-form') {
       const pid = form.dataset.pid;
       const challenge = form.dataset.challenge;
+      const generation = challengeGeneration, accountId = state.modal?.accountId;
       const fields = {};
       for (const [key, value] of Object.entries(data)) if (!key.startsWith('__')) fields[key] = String(value);
-      const result = await api(platformPath(pid) + '/login/' + encodeURIComponent(challenge) + '/submit', { method: 'POST', body: { fields } });
+      const result = await api(withAccount(platformPath(pid) + '/login/' + encodeURIComponent(challenge) + '/submit', accountId), { method: 'POST', body: { fields } });
+      if (generation !== challengeGeneration || !state.me) return;
       if (result.state === 'failed') throw new Error(result.message || '登录失败，请检查账号密码。');
       if (result.state === 'expired') throw new Error('登录已过期，请重新连接。');
-      challengeTimer = setTimeout(() => void pollChallenge(pid, challenge, challengeGeneration), 800);
+      challengeTimer = setTimeout(() => void pollChallenge(pid, challenge, generation, accountId), 800);
     } else {
       const settings = JSON.parse(data.settings);
       if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('模块设置必须是 JSON 对象。');
@@ -485,9 +515,20 @@ document.addEventListener('click', async (event) => {
       renderCourseSearch();
     } else if (action === 'clear-search') { state.search = ''; state.filter = 'all'; renderPage(); }
     else if (action === 'task-filter') { state.taskFilter = target.dataset.value; renderPage(); }
-    else if (action === 'connect') await connect(id, target.dataset.method);
-    else if (action === 'disconnect') {
-      await api(platformPath(id) + '/disconnect', { method: 'POST' });
+    else if (action === 'connect') await connect(id, target.dataset.method, target.dataset.accountId);
+    else if (action === 'add-platform-account') {
+      openModal('add-account', view.modalFrame('添加平台账号', `<p class="muted">每个账号位占用一个跨平台配额，移除后释放。</p><form id="platform-account-form" data-pid="${view.esc(id)}"><label>账号备注<input name="label" maxlength="60" placeholder="例如：张同学 · 本学期" required></label><p class="form-error" role="alert" hidden></p><div class="actions"><button class="button primary" type="submit">添加账号位</button><button class="button" type="button" data-action="modal-close">取消</button></div></form>`));
+    } else if (action === 'remove-platform-account') {
+      if (!confirm('移除此绑定并停止它的未结束任务？平台上的学习记录会保留，账号名额将释放。')) return;
+      await api(platformPath(id) + '/accounts/' + encodeURIComponent(target.dataset.accountId), { method: 'DELETE' });
+      delete state.courseLists[id];
+      await refreshConnections();
+      await refreshTasks();
+      renderPage();
+      toast('绑定已移除，名额已释放。');
+    } else if (action === 'disconnect') {
+      if (target.dataset.accountId) selectAccount(state, id, target.dataset.accountId);
+      await api(withAccount(platformPath(id) + '/disconnect', target.dataset.accountId), { method: 'POST' });
       delete state.courseLists[id];
       await refreshConnections();
       renderPage();

@@ -1,6 +1,7 @@
 import { loadScore, scoreView, scoreAction } from './score.js';
 import { qaView, loadQa, qaAction, submitDraft, captureQa, qaBudget } from './qa.js';
-import { coursePath } from './api.js';
+import { coursePath, withAccount } from './api.js';
+import { accountMatchesTask } from './accounts.js';
 import { esc, icon, empty, modalFrame, taskDetailView, dateText, stateLabel } from './views.js';
 
 export const operationNames = { study: '课程学习', trial: '短时试跑', review: '每日复习', answer: '作业与考试', mastery: '掌握度练习', meeting: '见面课', qa: '回答课程问题', ask: '发布课程提问' };
@@ -11,7 +12,7 @@ const errorBox = '<p class="form-error" role="alert" hidden></p>';
 const numberField = (name, text, value, min, max) => `<label>${text}<input name="${name}" type="number" min="${min}" max="${max}" value="${esc(value)}" required></label>`;
 const toggle = (name, text, checked = false) => `<label class="check-label"><input type="checkbox" name="${name}"${checked ? ' checked' : ''}>${text}</label>`;
 const formFooter = (label) => `${errorBox}<div class="actions">${button('取消', 'modal-close')}<button type="submit" class="button primary">${label}</button></div>`;
-const downloadLinks = (path, formats) => `<div class="actions export-links">${formats.map(([id, label]) => `<a class="button small" href="${path}?format=${id}" download>${label}</a>`).join('')}</div>`;
+const downloadLinks = (path, formats, accountId) => `<div class="actions export-links">${formats.map(([id, label]) => `<a class="button small" href="${withAccount(path + '?format=' + id, accountId)}" download>${label}</a>`).join('')}</div>`;
 const optionLabel = (q, values) => (values || []).map((value) => q.options?.find((o) => o.id === value)?.text || ({ true: '正确', false: '错误' })[value] || value).join('；') || '未作答';
 
 export async function load(state, api, current, render = () => {}) {
@@ -38,8 +39,8 @@ export function courseContent(state) {
   const operations = state.platforms.find((p) => p.id === state.route.pid)?.operations || [];
   const run = (op, text) => button(text, 'feature-job', `data-operation="${op}"${quiet || !operations.includes(op) ? ' disabled' : ''}`, true);
   if (tab === 'records') {
-    const tasks = state.tasks.filter((t) => t.platform === state.route.pid && t.course_id === state.course.id && t.recruit_id === state.course.recruit_id);
-    return `<section class="panel feature-panel"><div class="section-heading"><h2>本课程执行记录</h2><a class="button small" href="/api/history/export?${esc(new URLSearchParams({ platform: state.route.pid, course: state.course.id, recruit: state.course.recruit_id }))}" download>${icon('download')}导出纯文本日志</a></div>${tasks.map((t) => `<div class="record-row"><div><strong>${esc(operationNames[t.operation] || t.operation)}</strong><p class="muted">${esc(t.detail)}</p><small>${dateText(t.updated_at)} · ${esc(stateLabel(t.state))}</small></div>${button('详情与导出', 'task-detail', `data-id="${esc(t.id)}"`)}</div>`).join('') || '<p class="muted">本课程还没有执行记录。</p>'}</section>`;
+    const tasks = state.tasks.filter((t) => t.platform === state.route.pid && accountMatchesTask(state.platforms.find(p => p.id === state.route.pid), t) && t.course_id === state.course.id && t.recruit_id === state.course.recruit_id);
+    return `<section class="panel feature-panel"><div class="section-heading"><h2>本课程执行记录</h2><a class="button small" href="/api/history/export?${esc(new URLSearchParams({ platform: state.route.pid, course: state.course.id, recruit: state.course.recruit_id, ...(state.course.account_id ? { account_id: state.course.account_id } : {}) }))}" download>${icon('download')}导出纯文本日志</a></div>${tasks.map((t) => `<div class="record-row"><div><strong>${esc(operationNames[t.operation] || t.operation)}</strong><p class="muted">${esc(t.detail)}</p><small>${dateText(t.updated_at)} · ${esc(stateLabel(t.state))}</small></div>${button('详情与导出', 'task-detail', `data-id="${esc(t.id)}"`)}</div>`).join('') || '<p class="muted">本课程还没有执行记录。</p>'}</section>`;
   }
   if (tab === 'review') {
     const videos = state.units.filter((u) => u.kind === 'video' && u.state === 'completed');
@@ -142,7 +143,7 @@ export async function action(target, ctx) {
     let r = await api(root + '/review?request_id=' + request);
     for (let n = 0; !r.ready && n < 100; n++) r = await api(root + '/review?request_id=' + request);
     if (!r.ready) throw new Error('试卷尚未完整读取，请稍后重试。');
-    openModal('review', modalFrame('已提交试卷 · 只读', downloadLinks(root + '/export', [['md', 'Markdown'], ['docx', 'Word'], ['json', 'JSON'], ['csv', 'CSV']]) + questionsView({ attempt: r.attempt }, false), true)); return true;
+    openModal('review', modalFrame('已提交试卷 · 只读', downloadLinks(root + '/export', [['md', 'Markdown'], ['docx', 'Word'], ['json', 'JSON'], ['csv', 'CSV']], state.course.account_id) + questionsView({ attempt: r.attempt }, false), true)); return true;
   }
   return false;
 }

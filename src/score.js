@@ -1,9 +1,9 @@
-import { coursePath } from './api.js';
+import { coursePath, withAccount } from './api.js';
 import { esc, icon } from './views.js';
 
 const numeric = value => value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
 const format = value => numeric(value) == null ? '—' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Number(value));
-const routeKey = state => JSON.stringify([state.route.pid, state.course?.id, state.course?.recruit_id, state.route.tab]);
+const routeKey = state => JSON.stringify([state.route.pid, state.course?.id, state.course?.recruit_id, state.route.tab, state.course?.account_id]);
 
 export async function loadScore(state, api, current, render = () => {}) {
   const sections = state.presentation?.score_sections?.length ? state.presentation.score_sections : [{ id: '', label: '课程成绩' }];
@@ -57,5 +57,5 @@ export function scoreView(state) {
   const root = coursePath(state.route.pid, state.course);
   const sections = state.feature?.sections || [];
   const settled = sections.filter(section => !section.loading).length;
-  return `<div class="section-heading score-page-heading"><div><div class="eyebrow">学习表现</div><h2>我的成绩</h2><p class="muted">成绩、习惯与互动分开查看，各区域独立同步。${settled} / ${sections.length} 个分区已返回。</p></div><div class="actions"><button class="button" data-action="score-refresh">${icon('refresh')}刷新全部</button><a class="button small" href="${root}/scores/export?format=json" download>导出 JSON</a><a class="button small" href="${root}/scores/export?format=csv" download>导出 CSV</a></div></div><div class="score-dashboard">${sections.map(sectionView).join('')}</div>`;
+  return `<div class="section-heading score-page-heading"><div><div class="eyebrow">学习表现</div><h2>我的成绩</h2><p class="muted">成绩、习惯与互动分开查看，各区域独立同步。${settled} / ${sections.length} 个分区已返回。</p></div><div class="actions"><button class="button" data-action="score-refresh">${icon('refresh')}刷新全部</button><a class="button small" href="${withAccount(root + '/scores/export?format=json', state.course.account_id)}" download>导出 JSON</a><a class="button small" href="${withAccount(root + '/scores/export?format=csv', state.course.account_id)}" download>导出 CSV</a></div></div><div class="score-dashboard">${sections.map(sectionView).join('')}</div>`;
 }

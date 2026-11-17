@@ -528,3 +528,13 @@ blockquote { margin: 14px 0; padding: 12px 16px; background: var(--well); border
 .admin-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 22px; }
 @media (max-width: 1000px) { .admin-users-layout { grid-template-columns: 1fr; } }
 @media (max-width: 680px) { .admin-user-header { flex-wrap: wrap; } .admin-task > .actions { max-width: none; margin-left: 0; } }
+
+/* 团队账号共用配额，各平台账号位分别展示。 */
+.team-quota { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px; margin-bottom: 24px; }
+.team-quota p { margin: 8px 0 0; }
+.team-connections { align-items: start; }
+.team-account { border-top: 1px solid var(--line); padding: 18px 0; }
+.team-account-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.team-account h3 { margin: 0 0 6px; overflow-wrap: anywhere; }
+.team-account .connection-actions { flex-wrap: wrap; gap: 10px; }
+@media (max-width: 640px) { .team-quota { align-items: flex-start; flex-direction: column; } }
