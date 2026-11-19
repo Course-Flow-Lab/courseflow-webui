@@ -537,11 +537,14 @@ document.addEventListener('click', async (event) => {
       await refreshConnections();
       renderPage();
       toast('平台账号已断开。');
-    } else if (action === 'study') {
-      await api(coursePath(state.route.pid, state.course) + '/study', { method: 'POST', body: { unit_ids: [...state.selected], operation: 'study' } });
-      state.selected.clear();
-      document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = false; });
-      updateSelection();
+    } else if (action === 'study' || action === 'study-chain') {
+      const body = action === 'study-chain' ? { follow_unlocks: true } : { unit_ids: [...state.selected] };
+      await api(coursePath(state.route.pid, state.course) + '/study', { method: 'POST', body });
+      if (action === 'study') {
+        state.selected.clear();
+        document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = false; });
+        updateSelection();
+      }
       await refreshTasks();
       toast('任务已创建，可在底部或任务中心查看。');
     } else if (['task-pause', 'task-resume', 'task-stop', 'task-migrate'].includes(action)) {
