@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseRoute, courseHref, coursePath } from '../src/api.js';
-import { canSelectStudyUnit, courseCards, courseView } from '../src/views.js';
+import { courseCards, courseView } from '../src/views.js';
+import { canSelectStudyUnit, toggleStudyPick } from '../src/study-selection.js';
 
 test('course URLs preserve opaque identifiers, including slashes and Unicode', () => {
   const course = { id: '课程/1', recruit_id: 'term?1#2' };
@@ -74,4 +75,20 @@ test('超星全选包含有前置任务的章节，定时开放章节仍不可�
   assert.match(courseView(state), /data-unit="locked:2" checked aria-label/);
   assert.match(courseView(state), /data-unit="locked:3" disabled/);
   assert.doesNotMatch(courseView(state), /data-action="study-chain"/);
+});
+
+test('勾选待解锁章节补选所有前序单元，取消前置单元时同步取消依赖项', () => {
+  const units = [
+    { id: 'video', chapter_order: 1, selectable: true },
+    { id: 'locked:2', chapter_order: 2, selectable_after_unlock: true },
+    { id: 'locked:3', chapter_order: 3, selectable_after_unlock: true },
+    { id: 'document', chapter_order: 1, selectable: true },
+    { id: 'completed', chapter_order: 0, selectable: true, state: 'completed' },
+    { id: 'timed', chapter_order: 0, selectable: false },
+    { id: 'later', chapter_order: 4, selectable: true },
+  ];
+  const available = units.filter(unit => canSelectStudyUnit(unit, { deferred_study: true }));
+  const picks = new Set(['later']);
+  assert.deepEqual([...toggleStudyPick(available, picks, 'locked:3', true)], ['video', 'locked:2', 'locked:3', 'document', 'later']);
+  assert.deepEqual([...toggleStudyPick(available, picks, 'video', false)], ['later']);
 });

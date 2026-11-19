@@ -8,12 +8,13 @@ import { rememberCourse } from './course-progress.js';
 import { logsView, submitLogs } from './logs.js';
 import { invitationsView, loadInvitations, invitationFormIds, submitInvitations, invitationAction } from './invitations.js';
 import { WEBUI_VERSION } from './version.js';
+import { canSelectStudyUnit, toggleStudyPick } from './study-selection.js';
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
   me: null, csrf: '', bootstrap: null, platforms: [], modules: [], tasks: [],
   courseLists: {}, courseErrors: {}, course: null, units: [], presentation: null,
-  settings: null, feature: null, qaCourses: {}, selected: new Set(), route: parseRoute(location.hash), loading: false,
+  settings: null, feature: null, qaCourses: {}, studyPicks: new Set(), selected: new Set(), route: parseRoute(location.hash), loading: false,
   search: '', filter: 'all', taskFilter: 'all', modal: null, invitationAdmin: null, generatedInvitations: [], admin: null,
 };
 let routeGeneration = 0;
@@ -57,7 +58,7 @@ function expireSession() {
   routeGeneration += 1;
   clearTimeout(refreshTimer);
   closeModal();
-  Object.assign(state, { me: null, csrf: '', platforms: [], accountSelection: {}, accountQuota: null, modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, selected: new Set(), invitationAdmin: null, generatedInvitations: [], admin: null });
+  Object.assign(state, { me: null, csrf: '', platforms: [], accountSelection: {}, accountQuota: null, modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, studyPicks: new Set(), selected: new Set(), invitationAdmin: null, generatedInvitations: [], admin: null });
   $('#workspace').hidden = true;
   $('#page').replaceChildren();
   $('#auth').hidden = false;
@@ -163,6 +164,7 @@ async function loadRoute(force = false) {
   state.course = null;
   state.units = [];
   state.presentation = null;
+  state.studyPicks = new Set();
   state.selected = new Set();
   $('#page-error').hidden = true;
   state.loading = ['courses', 'course', 'settings', 'invitations', 'admin'].includes(state.route.page);
@@ -268,6 +270,7 @@ function scheduleRefresh() {
 }
 
 function updateSelection() {
+  document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = state.selected.has(input.dataset.unit); });
   const count = $('#selection-count');
   if (count) count.textContent = `已选择 ${state.selected.size} 个`;
   const button = $('#study-button');
@@ -276,7 +279,7 @@ function updateSelection() {
     !state.bootstrap.capabilities.jobs.includes('study') || !platform?.operations.includes('study');
   const all = $('#select-all');
   if (all) {
-    const pendingUnits = state.units.filter((u) => view.canSelectStudyUnit(u, state.bootstrap.capabilities));
+    const pendingUnits = state.units.filter((u) => canSelectStudyUnit(u, state.bootstrap.capabilities));
     all.checked = pendingUnits.length > 0 && pendingUnits.every((u) => state.selected.has(u.id));
     all.indeterminate = state.selected.size > 0 && !all.checked;
   }
@@ -414,12 +417,14 @@ document.addEventListener('change', (event) => {
   }
   if (qaChange(target, state)) return;
   if (!(target instanceof HTMLInputElement)) return;
-  if (target.dataset.unit) {
-    if (target.checked) state.selected.add(target.dataset.unit); else state.selected.delete(target.dataset.unit);
-    updateSelection();
-  } else if (target.id === 'select-all') {
-    state.selected = new Set(target.checked ? state.units.filter((u) => view.canSelectStudyUnit(u, state.bootstrap.capabilities)).map((u) => u.id) : []);
-    document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = state.selected.has(input.dataset.unit); });
+  if (target.dataset.unit || target.id === 'select-all') {
+    const available = state.units.filter((u) => canSelectStudyUnit(u, state.bootstrap.capabilities));
+    if (target.dataset.unit) {
+      state.selected = toggleStudyPick(available, state.studyPicks, target.dataset.unit, target.checked);
+    } else {
+      state.studyPicks = new Set(target.checked ? available.map(unit => unit.id) : []);
+      state.selected = new Set(state.studyPicks);
+    }
     updateSelection();
   }
 });
@@ -539,8 +544,8 @@ document.addEventListener('click', async (event) => {
       toast('平台账号已断开。');
     } else if (action === 'study') {
       await api(coursePath(state.route.pid, state.course) + '/study', { method: 'POST', body: { unit_ids: [...state.selected] } });
+      state.studyPicks.clear();
       state.selected.clear();
-      document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = false; });
       updateSelection();
       await refreshTasks();
       toast('任务已创建，可在底部或任务中心查看。');
