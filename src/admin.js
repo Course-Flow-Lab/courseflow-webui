@@ -1,4 +1,4 @@
-import { esc, icon, dateText, empty, badge, progress, modalFrame } from './views.js';
+import { esc, icon, dateText, empty, badge, progress, modalFrame, taskResumeAction, taskModuleNotice } from './views.js';
 import { roleName } from './accounts.js';
 import { operationNames } from './features.js';
 
@@ -54,7 +54,7 @@ export function adminUsersList(state) {
 }
 
 export function adminTaskActions(task) {
-  return `${['queued', 'running'].includes(task.state) ? button('暂停', 'task-pause', task.id) : ''}${task.state === 'paused' ? button('继续', 'task-resume', task.id) : ''}${active(task) ? button('停止', 'task-stop', task.id) : ''}${task.state === 'queued' ? button('上移', 'task-move', task.id, 'data-direction="up"') + button('下移', 'task-move', task.id, 'data-direction="down"') : ''}<button class="button small danger" data-action="admin-task-delete" data-id="${esc(task.id)}"${task.state === 'running' ? ' disabled title="请先停止任务再删除"' : ''}>删除</button>`;
+  return `${['queued', 'running'].includes(task.state) ? button('暂停', 'task-pause', task.id) : ''}${taskResumeAction(task, false, 'admin-task')}${active(task) ? button('停止', 'task-stop', task.id) : ''}${task.state === 'queued' ? button('上移', 'task-move', task.id, 'data-direction="up"') + button('下移', 'task-move', task.id, 'data-direction="down"') : ''}<button class="button small danger" data-action="admin-task-delete" data-id="${esc(task.id)}"${task.state === 'running' ? ' disabled title="请先停止任务再删除"' : ''}>删除</button>`;
 }
 
 function tasksView(state) {
@@ -73,7 +73,7 @@ function settingsView(state) {
 }
 
 export function adminTaskView({ task, events }) {
-  return modalFrame('站点任务详情', `<div class="task-detail-title"><h3>${esc(task.course_name || '课程任务')}</h3>${badge(task.state)}</div><p class="muted">${esc(task.username)} · ${esc(operationNames[task.operation] || task.operation)}</p><p>${esc(task.detail)}</p>${progress(task.progress)}<div class="actions">${adminTaskActions(task)}<a class="button" href="${taskPath(task.id)}/logs" download>${icon('download')}导出纯文本日志</a></div><h3 class="section-title">执行记录</h3><div class="event-list">${events.map(event => `<div class="event-row"><span class="event-dot"></span><div><p>${esc(event.detail)}</p><time class="muted">${dateText(event.created_at)}</time></div></div>`).join('') || '<p class="muted">暂无执行记录。</p>'}</div>`, true);
+  return modalFrame('站点任务详情', `<div class="task-detail-title"><h3>${esc(task.course_name || '课程任务')}</h3>${badge(task.state)}</div><p class="muted">${esc(task.username)} · ${esc(operationNames[task.operation] || task.operation)}</p><p>${esc(task.detail)}</p>${taskModuleNotice(task)}${progress(task.progress)}<div class="actions">${adminTaskActions(task)}<a class="button" href="${taskPath(task.id)}/logs" download>${icon('download')}导出纯文本日志</a></div><h3 class="section-title">执行记录</h3><div class="event-list">${events.map(event => `<div class="event-row"><span class="event-dot"></span><div><p>${esc(event.detail)}</p><time class="muted">${dateText(event.created_at)}</time></div></div>`).join('') || '<p class="muted">暂无执行记录。</p>'}</div>`, true);
 }
 
 function currentPage(state, who, tab) { return state.me === who && state.route.page === 'admin' && (state.route.tab || 'users') === tab; }
@@ -137,7 +137,9 @@ export async function adminAction(target, ctx) {
       return true;
     }
     if (operation === 'stop' && !confirm('停止此任务？停止后不能继续此任务。')) return true;
-    await api(taskPath(id) + '/' + operation, { method: 'POST', ...(operation === 'move' ? { body: { direction: target.dataset.direction } } : {}) });
+    const body = operation === 'move' ? { direction: target.dataset.direction } : operation === 'migrate' ? { to_version: target.dataset.version } : undefined;
+    await api(taskPath(id) + '/' + operation, { method: 'POST', body });
+    if (current() && operation === 'migrate') toast('已迁移，保留了原任务进度。');
     if (current() && state.modal?.kind === 'admin-task') await showAdminTask(id);
   }
   if (!current()) return true;

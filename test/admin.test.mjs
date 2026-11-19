@@ -56,6 +56,30 @@ test('全站任务显式选择排序，创建和更新时间可见，执行中�
   assert.ok(requests.some(path => path.includes('/api/admin/tasks?') && new URLSearchParams(path.split('?')[1]).get('sort') === 'oldest'));
 });
 
+test('旧版任务先迁移后继续，待核对的交卷仍显示回读入口', async () => {
+  const update = { from_version: '0.3.8', to_version: '0.3.9' };
+  const outdated = { ...task, operation: 'answer', module_update: update };
+  const detail = taskDetail({ task: outdated, events: [], workflow: { phase: 'waiting_submit' } }, false);
+  assert.match(detail, /task-migrate[^>]+data-version="0\.3\.9"/);
+  assert.doesNotMatch(detail, /task-resume|task-confirm/);
+  const blocked = { ...outdated, module_update: { ...update, blocked_reason: '请先回读并确认平台提交结果' } };
+  const readback = taskDetail({ task: blocked, events: [], workflow: { phase: 'readback' } }, false);
+  assert.match(readback, /请先回读并确认平台提交结果/);
+  assert.match(readback, /task-readback/);
+  assert.doesNotMatch(readback, /task-migrate|task-resume/);
+
+  const s = state(); s.route.tab = 'tasks';
+  const posts = [];
+  await adminAction({ dataset: { action: 'admin-task-migrate', id: task.id, version: update.to_version } }, {
+    state: s, renderPage: () => {}, toast: () => {}, api: async (path, options) => {
+      if (options) { posts.push([path, options]); return { task }; }
+      return path.endsWith('/overview') ? s.admin.overview : path.endsWith('/users') ? { users: s.admin.users } : { tasks: [task] };
+    },
+  });
+  assert.deepEqual(posts, [['/api/admin/tasks/task%2F%E4%B8%AD%E6%96%87/migrate', { method: 'POST', body: { to_version: '0.3.9' } }]]);
+  assert.match(adminTaskActions(s.admin.tasks.tasks[0]), /admin-task-resume/);
+});
+
 test('管理员删除需要确认，使用 DELETE 并移除详情及旧列表，末页删除后回上一页', async t => {
   const s = state(); s.route.tab = 'tasks'; s.modal = { kind: 'admin-task' }; s.tasks = [task];
   s.admin.offset = 100; s.admin.tasks = { tasks: [task], total: 101, offset: 100, limit: 100 };

@@ -105,8 +105,23 @@ export function courseView(state, featureContent = null) {
     <div class="outline">${[...chapters.values()].map((chapter) => `<section class="chapter"><header><h2>${esc(chapter.name)}</h2><span class="muted">${chapter.units.filter((u) => u.state === 'completed').length} / ${chapter.units.length}</span></header>${chapter.units.map((u) => `<label class="unit-row${u.state === 'completed' ? ' completed' : ''}"><input type="checkbox" data-unit="${esc(u.id)}"${state.selected.has(u.id) ? ' checked' : ''}${!u.selectable || u.state === 'completed' ? ' disabled' : ''} aria-label="选择 ${esc(u.name)}"><span class="unit-symbol">${icon(u.state === 'completed' ? 'check' : u.kind === 'video' ? 'play' : 'book')}</span><span class="unit-info"><strong>${esc(u.name)}</strong><small class="muted">${esc(({ video: '视频', audio: '音频', document: '文档', reading: '阅读', empty: '章节' })[u.kind] || u.kind)} · ${duration(u.duration_seconds)}${u.selectable_note ? ' · ' + esc(u.selectable_note) : ''}</small></span>${badge(u.state)}</label>`).join('')}</section>`).join('')}</div>` : empty('暂无学习单元', '刷新目录后可查看平台提供的学习单元。')}`}`;
 }
 
+export function taskResumeAction(task, quiet = false, prefix = 'task') {
+  if (task.state !== 'paused') return '';
+  const update = task.module_update;
+  if (update?.blocked_reason) return '';
+  if (update) return `<button class="button small" data-action="${prefix}-migrate" data-id="${esc(task.id)}" data-version="${esc(update.to_version)}">迁移到 ${esc(update.to_version)}</button>`;
+  return `<button class="button small" data-action="${prefix}-resume" data-id="${esc(task.id)}"${quiet ? ' disabled title="夜间暂停期间不能继续任务"' : ''}>继续</button>`;
+}
+
+export function taskModuleNotice(task) {
+  const update = task.module_update;
+  if (!update) return '';
+  const detail = update.blocked_reason || '迁移会保留原任务检查点。迁移完成后可以继续。';
+  return `<p class="banner">模块 ${esc(update.from_version)} → ${esc(update.to_version)}。${esc(detail)}</p>`;
+}
+
 export function taskActions(task, quiet = false) {
-  return `${['running', 'queued'].includes(task.state) ? `<button class="button small" data-action="task-pause" data-id="${esc(task.id)}">暂停</button>` : ''}${task.state === 'paused' ? `<button class="button small" data-action="task-resume" data-id="${esc(task.id)}"${quiet ? ' disabled title="夜间暂停期间不能继续任务"' : ''}>继续</button>` : ''}${['queued', 'running', 'paused'].includes(task.state) ? `<button class="text-button danger" data-action="task-stop" data-id="${esc(task.id)}">停止</button>` : ''}`;
+  return `${['running', 'queued'].includes(task.state) ? `<button class="button small" data-action="task-pause" data-id="${esc(task.id)}">暂停</button>` : ''}${taskResumeAction(task, quiet)}${['queued', 'running', 'paused'].includes(task.state) ? `<button class="text-button danger" data-action="task-stop" data-id="${esc(task.id)}">停止</button>` : ''}`;
 }
 
 export function tasksView(state) {
@@ -156,5 +171,5 @@ export function modalFrame(title, body, wide = false) {
 }
 
 export function taskDetailView(task, events, quiet) {
-  return modalFrame('任务详情', `<div class="task-detail-title"><h3>${esc(task.course_name)}</h3>${badge(task.state)}</div><p class="muted">${esc(task.detail)}</p>${task.account_label ? `<p class="muted">平台账号：${esc(task.account_label)}</p>` : ''}${progress(task.progress)}<p class="muted">已完成 ${task.completed.length} / ${task.units.length} 个单元 · ${Math.round(percent(task.progress))}%</p><div class="actions">${taskActions(task, quiet)}<a class="button" href="/api/tasks/${encodeURIComponent(task.id)}/logs" download>${icon('download')}导出日志</a></div><h3 class="section-title">执行记录</h3><div class="event-list">${events.map((e) => `<div class="event-row"><span class="event-dot"></span><div><p>${esc(e.detail)}</p><time class="muted">${dateText(e.created_at)}</time></div></div>`).join('') || '<p class="muted">暂无执行记录。</p>'}</div>`, true);
+  return modalFrame('任务详情', `<div class="task-detail-title"><h3>${esc(task.course_name)}</h3>${badge(task.state)}</div><p class="muted">${esc(task.detail)}</p>${task.account_label ? `<p class="muted">平台账号：${esc(task.account_label)}</p>` : ''}${taskModuleNotice(task)}${progress(task.progress)}<p class="muted">已完成 ${task.completed.length} / ${task.units.length} 个单元 · ${Math.round(percent(task.progress))}%</p><div class="actions">${taskActions(task, quiet)}<a class="button" href="/api/tasks/${encodeURIComponent(task.id)}/logs" download>${icon('download')}导出日志</a></div><h3 class="section-title">执行记录</h3><div class="event-list">${events.map((e) => `<div class="event-row"><span class="event-dot"></span><div><p>${esc(e.detail)}</p><time class="muted">${dateText(e.created_at)}</time></div></div>`).join('') || '<p class="muted">暂无执行记录。</p>'}</div>`, true);
 }
