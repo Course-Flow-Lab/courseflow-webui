@@ -276,7 +276,7 @@ function updateSelection() {
     !state.bootstrap.capabilities.jobs.includes('study') || !platform?.operations.includes('study');
   const all = $('#select-all');
   if (all) {
-    const pendingUnits = state.units.filter((u) => u.selectable && u.state !== 'completed');
+    const pendingUnits = state.units.filter((u) => view.canSelectStudyUnit(u, state.bootstrap.capabilities));
     all.checked = pendingUnits.length > 0 && pendingUnits.every((u) => state.selected.has(u.id));
     all.indeterminate = state.selected.size > 0 && !all.checked;
   }
@@ -418,7 +418,7 @@ document.addEventListener('change', (event) => {
     if (target.checked) state.selected.add(target.dataset.unit); else state.selected.delete(target.dataset.unit);
     updateSelection();
   } else if (target.id === 'select-all') {
-    state.selected = new Set(target.checked ? state.units.filter((u) => u.selectable && u.state !== 'completed').map((u) => u.id) : []);
+    state.selected = new Set(target.checked ? state.units.filter((u) => view.canSelectStudyUnit(u, state.bootstrap.capabilities)).map((u) => u.id) : []);
     document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = state.selected.has(input.dataset.unit); });
     updateSelection();
   }
@@ -537,14 +537,11 @@ document.addEventListener('click', async (event) => {
       await refreshConnections();
       renderPage();
       toast('平台账号已断开。');
-    } else if (action === 'study' || action === 'study-chain') {
-      const body = action === 'study-chain' ? { follow_unlocks: true } : { unit_ids: [...state.selected] };
-      await api(coursePath(state.route.pid, state.course) + '/study', { method: 'POST', body });
-      if (action === 'study') {
-        state.selected.clear();
-        document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = false; });
-        updateSelection();
-      }
+    } else if (action === 'study') {
+      await api(coursePath(state.route.pid, state.course) + '/study', { method: 'POST', body: { unit_ids: [...state.selected] } });
+      state.selected.clear();
+      document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = false; });
+      updateSelection();
       await refreshTasks();
       toast('任务已创建，可在底部或任务中心查看。');
     } else if (['task-pause', 'task-resume', 'task-stop', 'task-migrate'].includes(action)) {
