@@ -1,6 +1,7 @@
 import { courseHref, platformHref } from './api.js';
 import { roleName } from './accounts.js';
 import { courseProgress } from './course-progress.js';
+import { canSelectStudyUnit } from './study-selection.js';
 
 export const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -79,10 +80,6 @@ export function courseCards(courses, total) {
     const info = courseProgress(course);
     return `<a class="course-card" href="${courseHref(course.platform.id, course)}"><div class="course-card-top"><span class="course-symbol">${icon('book')}</span><span class="tag">${esc(course.kind_label || course.kind)}</span></div><h2>${esc(course.name)}</h2><p class="course-platform"><span class="status-dot"></span>${esc(course.platform.name)}${course.platform.account_label ? ' · ' + esc(course.platform.account_label) : ''}</p><div class="course-progress-label"><span>${esc(info.label)}</span><strong>${esc(info.text)}</strong></div>${info.value === null ? '' : progress(info.value, course.name + info.label)}<div class="course-card-foot"><span>${course.outline_available ? '查看课程目录' : '查看课程信息'}</span>${icon('arrow')}</div></a>`;
   }).join('')}</div><p class="list-foot">显示 ${courses.length} 门课程 · 共 ${total} 门</p>`;
-}
-
-export function canSelectStudyUnit(unit, capabilities) {
-  return unit.state !== 'completed' && (unit.selectable || capabilities.deferred_study && unit.selectable_after_unlock);
 }
 
 export function courseView(state, featureContent = null) {
