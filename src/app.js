@@ -233,7 +233,10 @@ async function refreshTasks() {
     renderQuiet();
     updateSelection();
   }
-  if (changed && state.modal?.kind === 'task') { const current = state.tasks.find((t) => t.id === state.modal.id); if (current && current.state !== state.modal.taskState) await showTask(current.id); }
+  if (changed && state.modal?.kind === 'task') {
+    const current = state.tasks.find((t) => t.id === state.modal.id);
+    if (current && (current.state !== state.modal.taskState || JSON.stringify(current.module_update) !== JSON.stringify(state.modal.moduleUpdate))) await showTask(current.id);
+  }
   setConnection(true);
 }
 
@@ -376,7 +379,7 @@ async function showTask(id) {
   const route = routeGeneration;
   const result = await api('/api/tasks/' + encodeURIComponent(id));
   if (generation !== sessionGeneration || route !== routeGeneration || modalVersion !== challengeGeneration) return;
-  openModal('task', features.taskDetail(result, state.bootstrap.quiet_hours.active), { id, taskState: result.task.state });
+  openModal('task', features.taskDetail(result, state.bootstrap.quiet_hours.active), { id, taskState: result.task.state, moduleUpdate: result.task.module_update });
 }
 
 async function showAdminTask(id) {
@@ -458,8 +461,9 @@ document.addEventListener('submit', async (event) => {
       await api('/api/modules/install', { method: 'POST', body: { path: data.path.trim() } });
       closeModal();
       await refreshConnections();
+      await refreshTasks();
       renderPage();
-      toast('模块已安装。前往平台连接，即可连接账号。');
+      toast('模块已安装。旧任务的迁移状态可在任务详情查看。');
     } else if (form.id === 'login-form') {
       const pid = form.dataset.pid;
       const challenge = form.dataset.challenge;
@@ -540,10 +544,13 @@ document.addEventListener('click', async (event) => {
       updateSelection();
       await refreshTasks();
       toast('任务已创建，可在底部或任务中心查看。');
-    } else if (['task-pause', 'task-resume', 'task-stop'].includes(action)) {
-      await api('/api/tasks/' + encodeURIComponent(id) + '/' + action.slice(5), { method: 'POST' });
+    } else if (['task-pause', 'task-resume', 'task-stop', 'task-migrate'].includes(action)) {
+      const migration = action === 'task-migrate';
+      const modal = state.modal;
+      await api('/api/tasks/' + encodeURIComponent(id) + '/' + action.slice(5), { method: 'POST', ...(migration ? { body: { to_version: target.dataset.version } } : {}) });
       await refreshTasks();
-      if (state.modal?.kind === 'task') await showTask(id);
+      if (state.modal === modal && modal?.kind === 'task') await showTask(id);
+      if (migration) toast('已迁移，保留了原任务进度。');
     } else if (action === 'task-detail') await showTask(id);
     else if (action === 'module-enable' || action === 'module-disable') {
       await api('/api/modules/' + encodeURIComponent(id) + '/' + action.slice(7), { method: 'POST' });

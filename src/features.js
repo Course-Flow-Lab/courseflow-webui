@@ -106,12 +106,12 @@ export function taskDetail(result, quiet) {
   if (result.reviewed_seconds) content += `<p class="banner">本次已复习 ${Math.round(result.reviewed_seconds / 60 * 10) / 10} 分钟，原完成状态已保留。</p>`;
   if (task.state === 'queued') content += `<div class="actions">${button('在队列中上移', 'task-move', `data-id="${esc(task.id)}" data-direction="up"`)}${button('在队列中下移', 'task-move', `data-id="${esc(task.id)}" data-direction="down"`)}</div>`;
   if (w) {
-    if (w.kind === 'activity' && w.phase === 'waiting_text') content += `<form id="answers-form" data-id="${esc(task.id)}"><label>待发布的回答<textarea name="text" rows="6" minlength="10" maxlength="1500" required></textarea></label>${errorBox}<button class="button primary" type="submit">保存并继续发布</button></form>`;
+    if (w.kind === 'activity' && w.phase === 'waiting_text' && !task.module_update) content += `<form id="answers-form" data-id="${esc(task.id)}"><label>待发布的回答<textarea name="text" rows="6" minlength="10" maxlength="1500" required></textarea></label>${errorBox}<button class="button primary" type="submit">保存并继续发布</button></form>`;
     else if (w.attempt?.questions || w.questions) {
-      const editable = task.state === 'paused' && ['answers', 'waiting_answers', 'waiting_submit'].includes(w.phase);
+      const editable = task.state === 'paused' && !task.module_update && ['answers', 'waiting_answers', 'waiting_submit'].includes(w.phase);
       content += `<form id="answers-form" data-id="${esc(task.id)}">${w.attempt?.expires_at ? `<div class="banner">本次作答截止：${dateText(w.attempt.expires_at)}</div>` : ''}${questionsView(w, editable)}${editable ? `${w.preserve?.length ? toggle('replace_existing', '我允许本次人工修改覆盖平台已有答案') : ''}${errorBox}<button class="button" type="submit">保存答案并继续</button>` : ''}</form>`;
     }
-    if (task.state === 'paused' && w.phase === 'waiting_submit') content += `<div class="submit-confirm"><p>请检查上方答案，确认后将向平台提交本次作答。</p>${button('确认本次交卷', 'task-confirm', `data-id="${esc(task.id)}"${quiet ? ' disabled' : ''}`, true)}</div>`;
+    if (task.state === 'paused' && w.phase === 'waiting_submit' && !task.module_update) content += `<div class="submit-confirm"><p>请检查上方答案，确认后将向平台提交本次作答。</p>${button('确认本次交卷', 'task-confirm', `data-id="${esc(task.id)}"${quiet ? ' disabled' : ''}`, true)}</div>`;
     if (task.state === 'paused' && ['submitting', 'readback'].includes(w.phase)) content += `<div class="banner">交卷结果待核对。此操作只读取平台结果，不会重新交卷。</div>${button('回读提交结果', 'task-readback', `data-id="${esc(task.id)}"`)}`;
     if (w.records?.length) content += `<h3 class="section-title">已确认的作答</h3>${w.records.map((r) => `<p>${esc(r.attempt?.name || r.paper?.name)} · ${r.score == null ? '平台未提供分数' : `${esc(r.score)} 分`} · 已确认提交</p>`).join('')}`;
   }
