@@ -297,6 +297,7 @@ function openModal(kind, content, extra = {}) {
 }
 
 function closeModal() {
+  const closingTest = state.modal?.kind === 'captcha-test';
   challengeGeneration += 1;
   captchaSession += 1;
   clearTimeout(challengeTimer);
@@ -305,6 +306,7 @@ function closeModal() {
   state.captchaGeo = null;
   state.captchaDrag = null;
   state.captchaDragging = false;
+  if (closingTest) void api('/api/admin/captcha-test', { method: 'DELETE' }).catch(() => {});
   if ($('#modal').open) $('#modal').close();
 }
 
@@ -356,12 +358,17 @@ async function refreshCaptcha(id, generation) {
 
 async function submitCaptcha(action) {
   const modal = state.modal;
-  if (!modal || modal.kind !== 'captcha') return;
+  if (!modal || !['captcha', 'captcha-test'].includes(modal.kind)) return;
+  const test = modal.kind === 'captcha-test';
   captchaHint('正在发送到官方浏览器…');
   try {
-    await api('/api/tasks/' + encodeURIComponent(modal.id) + '/captcha', { method: 'POST', body: action });
-    captchaHint('已发送，正在刷新验证码…');
-    setTimeout(() => { void refreshCaptcha(modal.id, captchaSession); }, 350);
+    const path = test ? '/api/admin/captcha-test/input' : '/api/tasks/' + encodeURIComponent(modal.id) + '/captcha';
+    await api(path, { method: 'POST', body: action });
+    captchaHint(test ? '已发送，测试页面正在刷新…' : '已发送，正在刷新验证码…');
+    setTimeout(() => {
+      if (test) void refreshCaptchaTest(captchaSession);
+      else void refreshCaptcha(modal.id, captchaSession);
+    }, 350);
   } catch (error) { captchaHint(error.message || '验证码操作失败，请重试。'); }
 }
 
@@ -403,6 +410,51 @@ function bindCaptchaImage(id, generation) {
   };
   image.addEventListener('pointerup', finish);
   image.addEventListener('pointercancel', finish);
+}
+
+async function refreshCaptchaTest(generation) {
+  if (generation !== captchaSession || state.modal?.kind !== 'captcha-test') return;
+  if (state.captchaDragging) return;
+  try {
+    const challenge = await api('/api/admin/captcha-test');
+    if (generation !== captchaSession || state.modal?.kind !== 'captcha-test') return;
+    if (challenge.state !== 'ready') {
+      const loading = $('#captcha-loading');
+      if (loading) loading.hidden = false;
+      captchaHint('正在等待官方验证码加载…');
+      return;
+    }
+    state.captchaGeo = { x: Number(challenge.x), y: Number(challenge.y), width: Number(challenge.width), height: Number(challenge.height) };
+    const image = $('#captcha-image');
+    const loading = $('#captcha-loading');
+    if (!image) return;
+    image.src = 'data:' + challenge.mime + ';base64,' + challenge.image;
+    image.hidden = false;
+    if (loading) loading.hidden = true;
+    captchaHint('测试页面：请拖动底部左侧滑块，或点击点选目标。');
+  } catch (error) {
+    if (generation === captchaSession) captchaHint(error.message || '读取测试验证码失败。');
+  }
+}
+
+async function openCaptchaTest() {
+  const generation = ++captchaSession;
+  clearInterval(captchaTimer);
+  state.captchaGeo = null;
+  state.captchaDrag = null;
+  state.captchaDragging = false;
+  openModal('captcha-test', view.captchaModalView({}, true), { id: 'test' });
+  bindCaptchaImage('test', generation);
+  try {
+    await api('/api/admin/captcha-test', { method: 'POST' });
+  } catch (error) {
+    captchaHint(error.message || '启动验证码测试失败。');
+    return;
+  }
+  await refreshCaptchaTest(generation);
+  captchaTimer = setInterval(() => {
+    if (generation === captchaSession && state.modal?.kind === 'captcha-test') void refreshCaptchaTest(generation);
+  }, 1500);
 }
 
 async function openCaptcha(id) {
@@ -628,6 +680,7 @@ document.addEventListener('click', async (event) => {
   pending.add(key);
   target.disabled = true;
   try {
+    if (action === 'admin-captcha-test') { await openCaptchaTest(); return; }
     if (await adminAction(target, featureContext())) return;
     if (await features.action(target, featureContext())) return;
     if (await invitationAction(target, featureContext())) return;

@@ -130,8 +130,11 @@ export function taskActions(task, quiet = false) {
   return `${captcha}${['running', 'queued'].includes(task.state) ? `<button class="button small" data-action="task-pause" data-id="${esc(task.id)}">暂停</button>` : ''}${taskResumeAction(task, quiet)}${['queued', 'running', 'paused'].includes(task.state) ? `<button class="text-button danger" data-action="task-stop" data-id="${esc(task.id)}">停止</button>` : ''}`;
 }
 
-export function captchaModalView(task) {
-  return modalFrame('人工完成验证码', `<p class="muted">请拖动图片底部左侧的滑块完成拼图（不要拖动上方拼图块），或直接点击点选目标。操作会发送到运行任务的官方浏览器；验证通过后任务会自动继续。</p><div id="captcha-stage" class="captcha-stage"><div id="captcha-loading" class="loading-state"><span class="spinner"></span>正在加载验证码…</div><img id="captcha-image" alt="官方验证码" draggable="false" hidden></div><p id="captcha-hint" class="muted" role="status">图片加载后，请拖动底部滑块或点击目标。</p><div class="actions"><button class="button" data-action="captcha-refresh">刷新图片</button><button class="button" data-action="modal-close">暂时关闭</button></div>`, true);
+export function captchaModalView(task, test = false) {
+  const intro = test
+    ? '这是管理员验证码拖动测试：页面使用无账号的官方验证码组件，不会提交平台任务。请拖动图片底部左侧的滑块（不要拖动上方拼图块），或点击点选目标。'
+    : '请拖动图片底部左侧的滑块完成拼图（不要拖动上方拼图块），或直接点击点选目标。操作会发送到运行任务的官方浏览器；验证通过后任务会自动继续。';
+  return modalFrame(test ? '验证码拖动测试' : '人工完成验证码', `<p class="muted">${intro}</p><div id="captcha-stage" class="captcha-stage"><div id="captcha-loading" class="loading-state"><span class="spinner"></span>正在加载验证码…</div><img id="captcha-image" alt="官方验证码" draggable="false" hidden></div><p id="captcha-hint" class="muted" role="status">图片加载后，请拖动底部滑块或点击目标。</p><div class="actions"><button class="button" data-action="captcha-refresh">刷新图片</button><button class="button" data-action="modal-close">${test ? '关闭测试' : '暂时关闭'}</button></div>`, true);
 }
 
 export function tasksView(state) {

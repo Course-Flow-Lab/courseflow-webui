@@ -25,7 +25,7 @@ export async function loadAdmin(state, api, current = () => true) {
 export function adminView(state) {
   if (state.me.user.role !== 'admin') return empty('此页面仅管理员可用', '请使用管理员账号登录。', '<a class="button" href="#/courses">返回课程</a>', 'user');
   const tab = state.route.tab || 'users', data = state.admin;
-  const head = `<header class="page-heading"><div><div class="eyebrow">工作台管理</div><h1>站点管理</h1><p class="muted">管理成员账号、全站任务与任务资源分配。</p></div>${button(`${icon('refresh')}刷新`, 'refresh')}</header>
+  const head = `<header class="page-heading"><div><div class="eyebrow">工作台管理</div><h1>站点管理</h1><p class="muted">管理成员账号、全站任务与任务资源分配。</p></div><div class="actions">${button('验证码拖动测试', 'captcha-test')}${button(`${icon('refresh')}刷新`, 'refresh')}</div></header>
     <nav class="detail-tabs admin-tabs" aria-label="站点管理">${tabs.map(([key, label]) => `<a href="#/admin/${key}" class="${key === tab ? 'active' : ''}"${key === tab ? ' aria-current="page"' : ''}>${label}</a>`).join('')}<a href="#/invitations">注册与邀请</a><a href="#/modules">平台模块</a><a href="#/logs">日志导出</a></nav>`;
   if (state.loading || !data?.overview) return head + loading;
   const overview = data.overview;
