@@ -92,3 +92,21 @@ test('勾选待解锁章节补选所有前序单元，取消前置单元时同�
   assert.deepEqual([...toggleStudyPick(available, picks, 'locked:3', true)], ['video', 'locked:2', 'locked:3', 'document', 'later']);
   assert.deepEqual([...toggleStudyPick(available, picks, 'video', false)], ['later']);
 });
+
+test('自动提交前置测验需有配套模块且已选待解锁章节', () => {
+  const state = {
+    route: { pid: 'cx' },
+    course: { name: '合成课程', outline_available: true },
+    platforms: [{ id: 'cx', name: '超星', operations: ['study'] }],
+    units: [{ id: 'locked:2', name: '后续章节', state: 'not_started', selectable_after_unlock: true, kind: 'empty' }],
+    selected: new Set(),
+    bootstrap: { quiet_hours: { active: false }, capabilities: { jobs: ['study'], deferred_study: true, auto_prerequisite_quizzes: true } },
+  };
+  assert.doesNotMatch(courseView(state), /auto-prerequisite-quizzes/);
+  state.presentation = { actions: [{ id: 'auto_prerequisite_quizzes', label: '模型自动作答并提交前置测验' }] };
+  assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox" disabled/);
+  state.selected.add('locked:2');
+  assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox">/);
+  state.autoPrerequisiteQuizzes = true;
+  assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox" checked/);
+});
