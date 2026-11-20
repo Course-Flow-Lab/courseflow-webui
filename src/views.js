@@ -1,7 +1,7 @@
 import { courseHref, platformHref } from './api.js';
 import { roleName } from './accounts.js';
 import { courseProgress } from './course-progress.js';
-import { canSelectStudyUnit, hasSelectedLockedChapter } from './study-selection.js';
+import { canSelectStudyUnit, hasSelectedLockedChapter, prerequisiteQuizAction } from './study-selection.js';
 
 export const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -89,8 +89,7 @@ export function courseView(state, featureContent = null) {
   const platform = state.platforms.find((p) => p.id === state.route.pid);
   const canSelect = (unit) => canSelectStudyUnit(unit, state.bootstrap.capabilities);
   const pending = state.units.filter(canSelect);
-  const quizAction = state.route.pid === 'cx' && state.bootstrap.capabilities.auto_prerequisite_quizzes &&
-    pending.some(unit => unit.selectable_after_unlock) && state.presentation?.actions?.find(action => action.id === 'auto_prerequisite_quizzes');
+  const quizAction = pending.some(unit => unit.selectable_after_unlock) && prerequisiteQuizAction(state);
   const quizOption = quizAction ? `<label class="check-label"><input id="auto-prerequisite-quizzes" type="checkbox"${state.autoPrerequisiteQuizzes ? ' checked' : ''}${hasSelectedLockedChapter(pending, state.selected) ? '' : ' disabled'}>${esc(quizAction.label)}</label>` : '';
   const canStudy = !state.bootstrap.quiet_hours.active && state.bootstrap.capabilities.jobs.includes('study') && platform?.operations.includes('study');
   const done = state.units.filter((u) => u.state === 'completed').length;
