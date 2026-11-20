@@ -302,6 +302,8 @@ function closeModal() {
   captchaSession += 1;
   clearTimeout(challengeTimer);
   clearInterval(captchaTimer);
+  stopCaptchaLive();
+  captchaPointerQueue = Promise.resolve();
   state.modal = null;
   state.captchaGeo = null;
   state.captchaDrag = null;
@@ -315,11 +317,75 @@ function captchaHint(message) {
   if (hint) hint.textContent = message;
 }
 
+let captchaLiveTimer;
+let captchaPointerQueue = Promise.resolve();
+let captchaLastMove = 0;
+
+function captchaEndpoint(test, id, input = false) {
+  return test
+    ? (input ? '/api/admin/captcha-test/input' : '/api/admin/captcha-test')
+    : '/api/tasks/' + encodeURIComponent(id) + '/captcha';
+}
+
+function drawCaptcha(challenge) {
+  const canvas = $('#captcha-canvas');
+  if (!canvas) return;
+  state.captchaGeo = {
+    x: Number(challenge.x), y: Number(challenge.y),
+    width: Number(challenge.width), height: Number(challenge.height),
+  };
+  const image = new Image();
+  image.onload = () => {
+    if (!canvas.isConnected) return;
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext('2d').drawImage(image, 0, 0);
+    canvas.hidden = false;
+    const loading = $('#captcha-loading');
+    if (loading) loading.hidden = true;
+  };
+  image.src = 'data:' + challenge.mime + ';base64,' + challenge.image;
+}
+
+function queueCaptchaPointer(action) {
+  const modal = state.modal;
+  if (!modal || !['captcha', 'captcha-test'].includes(modal.kind)) return;
+  const test = modal.kind === 'captcha-test';
+  const path = captchaEndpoint(test, modal.id, true);
+  captchaPointerQueue = captchaPointerQueue.then(() => {
+    const current = state.modal;
+    if (!current || current.kind !== modal.kind || current.id !== modal.id) return;
+    return api(path, { method: 'POST', body: action });
+  }).catch((error) => {
+    captchaHint(error.message || '验证码操作失败，请重试。');
+  });
+}
+
+function stopCaptchaLive() {
+  clearInterval(captchaLiveTimer);
+  captchaLiveTimer = undefined;
+}
+
+function startCaptchaLive(test, id, generation) {
+  stopCaptchaLive();
+  captchaLiveTimer = setInterval(() => {
+    if (!state.captchaDragging || generation !== captchaSession) return;
+    void liveCaptchaFrame(test, id, generation);
+  }, 120);
+}
+
+async function liveCaptchaFrame(test, id, generation) {
+  try {
+    const challenge = await api(captchaEndpoint(test, id));
+    if (!state.captchaDragging || generation !== captchaSession) return;
+    const modal = state.modal;
+    if (!modal || (test ? modal.kind !== 'captcha-test' : modal.kind !== 'captcha' || modal.id !== id)) return;
+    if (challenge.state === 'ready') drawCaptcha(challenge);
+  } catch { /* A frame can race with the popup closing. */ }
+}
+
 async function refreshCaptcha(id, generation) {
   if (generation !== captchaSession || state.modal?.kind !== 'captcha' || state.modal.id !== id) return;
-  // Replacing the img src during a pointer gesture cancels the drag in
-  // Chromium even when pointer capture is set. The interval must not
-  // refresh the image between pointerdown and pointerup.
   if (state.captchaDragging) return;
   try {
     const [challenge, snapshot] = await Promise.all([
@@ -343,73 +409,11 @@ async function refreshCaptcha(id, generation) {
       captchaHint('正在等待官方验证码加载…');
       return;
     }
-    state.captchaGeo = { x: Number(challenge.x), y: Number(challenge.y), width: Number(challenge.width), height: Number(challenge.height) };
-    const image = $('#captcha-image');
-    const loading = $('#captcha-loading');
-    if (!image) return;
-    image.src = 'data:' + challenge.mime + ';base64,' + challenge.image;
-    image.hidden = false;
-    if (loading) loading.hidden = true;
+    drawCaptcha(challenge);
     captchaHint('请拖动图片底部左侧的滑块（不要拖动上方拼图块）；点选验证请直接点击目标。');
   } catch (error) {
     if (generation === captchaSession) captchaHint(error.message || '读取验证码失败，请刷新重试。');
   }
-}
-
-async function submitCaptcha(action) {
-  const modal = state.modal;
-  if (!modal || !['captcha', 'captcha-test'].includes(modal.kind)) return;
-  const test = modal.kind === 'captcha-test';
-  captchaHint('正在发送到官方浏览器…');
-  try {
-    const path = test ? '/api/admin/captcha-test/input' : '/api/tasks/' + encodeURIComponent(modal.id) + '/captcha';
-    await api(path, { method: 'POST', body: action });
-    captchaHint(test ? '已发送，测试页面正在刷新…' : '已发送，正在刷新验证码…');
-    setTimeout(() => {
-      if (test) void refreshCaptchaTest(captchaSession);
-      else void refreshCaptcha(modal.id, captchaSession);
-    }, 350);
-  } catch (error) { captchaHint(error.message || '验证码操作失败，请重试。'); }
-}
-
-function bindCaptchaImage(id, generation) {
-  const image = $('#captcha-image');
-  if (!image) return;
-  image.addEventListener('pointerdown', (event) => {
-    if (!state.captchaGeo || image.hidden) return;
-    event.preventDefault();
-    image.setPointerCapture?.(event.pointerId);
-    state.captchaDragging = true;
-    state.captchaDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
-    image.classList.add('dragging');
-  });
-  image.addEventListener('pointermove', (event) => {
-    if (!state.captchaDrag || event.pointerId !== state.captchaDrag.pointerId) return;
-    const distance = Math.hypot(event.clientX - state.captchaDrag.startX, event.clientY - state.captchaDrag.startY);
-    if (distance > 4) captchaHint('松开后将拖动发送到官方验证码。');
-  });
-  const finish = (event) => {
-    const drag = state.captchaDrag;
-    if (!drag || event.pointerId !== drag.pointerId || !state.captchaGeo || generation !== captchaSession) {
-      state.captchaDrag = null;
-      state.captchaDragging = false;
-      image.classList.remove('dragging');
-      return;
-    }
-    state.captchaDrag = null;
-    state.captchaDragging = false;
-    image.classList.remove('dragging');
-    const rect = image.getBoundingClientRect();
-    const geo = state.captchaGeo;
-    if (!rect.width || !rect.height) return;
-    const scaleX = geo.width / rect.width, scaleY = geo.height / rect.height;
-    const start = { x: geo.x + (drag.startX - rect.left) * scaleX, y: geo.y + (drag.startY - rect.top) * scaleY };
-    const end = { x: geo.x + (event.clientX - rect.left) * scaleX, y: geo.y + (event.clientY - rect.top) * scaleY };
-    if (Math.hypot(end.x - start.x, end.y - start.y) < 4) void submitCaptcha({ type: 'click', x: end.x, y: end.y });
-    else void submitCaptcha({ type: 'drag', from: start, to: end });
-  };
-  image.addEventListener('pointerup', finish);
-  image.addEventListener('pointercancel', finish);
 }
 
 async function refreshCaptchaTest(generation) {
@@ -424,27 +428,79 @@ async function refreshCaptchaTest(generation) {
       captchaHint('正在等待官方验证码加载…');
       return;
     }
-    state.captchaGeo = { x: Number(challenge.x), y: Number(challenge.y), width: Number(challenge.width), height: Number(challenge.height) };
-    const image = $('#captcha-image');
-    const loading = $('#captcha-loading');
-    if (!image) return;
-    image.src = 'data:' + challenge.mime + ';base64,' + challenge.image;
-    image.hidden = false;
-    if (loading) loading.hidden = true;
+    drawCaptcha(challenge);
     captchaHint('测试页面：请拖动底部左侧滑块，或点击点选目标。');
   } catch (error) {
     if (generation === captchaSession) captchaHint(error.message || '读取测试验证码失败。');
   }
 }
 
+function bindCaptchaCanvas(id, generation) {
+  const canvas = $('#captcha-canvas');
+  if (!canvas) return;
+  const point = (event) => {
+    const geo = state.captchaGeo;
+    const rect = canvas.getBoundingClientRect();
+    if (!geo || !rect.width || !rect.height) return null;
+    return {
+      x: geo.x + (event.clientX - rect.left) * geo.width / rect.width,
+      y: geo.y + (event.clientY - rect.top) * geo.height / rect.height,
+    };
+  };
+  canvas.addEventListener('pointerdown', (event) => {
+    if (!state.captchaGeo || canvas.hidden) return;
+    event.preventDefault();
+    canvas.setPointerCapture?.(event.pointerId);
+    state.captchaDragging = true;
+    state.captchaDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+    captchaLastMove = 0;
+    canvas.classList.add('dragging');
+    const position = point(event);
+    if (!position) return;
+    queueCaptchaPointer({ type: 'press', x: position.x, y: position.y });
+    startCaptchaLive(state.modal?.kind === 'captcha-test', state.modal?.id, generation);
+    captchaHint('正在实时同步滑块位置…');
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!state.captchaDrag || event.pointerId !== state.captchaDrag.pointerId) return;
+    event.preventDefault();
+    const now = Date.now();
+    if (now - captchaLastMove < 60) return;
+    captchaLastMove = now;
+    const position = point(event);
+    if (position) queueCaptchaPointer({ type: 'move', x: position.x, y: position.y });
+  });
+  const finish = (event) => {
+    const drag = state.captchaDrag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const test = state.modal?.kind === 'captcha-test';
+    const modalId = state.modal?.id;
+    const position = point(event);
+    state.captchaDrag = null;
+    state.captchaDragging = false;
+    canvas.classList.remove('dragging');
+    stopCaptchaLive();
+    if (position) queueCaptchaPointer({ type: 'release', x: position.x, y: position.y });
+    captchaHint('已松开，正在确认验证码…');
+    setTimeout(() => {
+      if (test) void refreshCaptchaTest(generation);
+      else if (modalId) void refreshCaptcha(modalId, generation);
+    }, 350);
+  };
+  canvas.addEventListener('pointerup', finish);
+  canvas.addEventListener('pointercancel', finish);
+}
+
 async function openCaptchaTest() {
   const generation = ++captchaSession;
   clearInterval(captchaTimer);
+  stopCaptchaLive();
+  captchaPointerQueue = Promise.resolve();
   state.captchaGeo = null;
   state.captchaDrag = null;
   state.captchaDragging = false;
   openModal('captcha-test', view.captchaModalView({}, true), { id: 'test' });
-  bindCaptchaImage('test', generation);
+  bindCaptchaCanvas('test', generation);
   try {
     await api('/api/admin/captcha-test', { method: 'POST' });
   } catch (error) {
@@ -461,11 +517,13 @@ async function openCaptcha(id) {
   const task = state.tasks.find((item) => item.id === id);
   const generation = ++captchaSession;
   clearInterval(captchaTimer);
+  stopCaptchaLive();
+  captchaPointerQueue = Promise.resolve();
   state.captchaGeo = null;
   state.captchaDrag = null;
   state.captchaDragging = false;
   openModal('captcha', view.captchaModalView(task || { id }), { id });
-  bindCaptchaImage(id, generation);
+  bindCaptchaCanvas(id, generation);
   await refreshCaptcha(id, generation);
   captchaTimer = setInterval(() => {
     if (generation === captchaSession && state.modal?.kind === 'captcha') void refreshCaptcha(id, generation);
