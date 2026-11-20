@@ -126,7 +126,12 @@ export function taskModuleNotice(task) {
 }
 
 export function taskActions(task, quiet = false) {
-  return `${['running', 'queued'].includes(task.state) ? `<button class="button small" data-action="task-pause" data-id="${esc(task.id)}">暂停</button>` : ''}${taskResumeAction(task, quiet)}${['queued', 'running', 'paused'].includes(task.state) ? `<button class="text-button danger" data-action="task-stop" data-id="${esc(task.id)}">停止</button>` : ''}`;
+  const captcha = task.manual_captcha ? `<button class="button small primary" data-action="task-captcha" data-id="${esc(task.id)}">完成验证码</button>` : '';
+  return `${captcha}${['running', 'queued'].includes(task.state) ? `<button class="button small" data-action="task-pause" data-id="${esc(task.id)}">暂停</button>` : ''}${taskResumeAction(task, quiet)}${['queued', 'running', 'paused'].includes(task.state) ? `<button class="text-button danger" data-action="task-stop" data-id="${esc(task.id)}">停止</button>` : ''}`;
+}
+
+export function captchaModalView(task) {
+  return modalFrame('人工完成验证码', `<p class="muted">请在下方官方验证码图片上完成拖动或点击。操作会发送到运行任务的官方浏览器；验证通过后任务会自动继续。</p><div id="captcha-stage" class="captcha-stage"><div id="captcha-loading" class="loading-state"><span class="spinner"></span>正在加载验证码…</div><img id="captcha-image" alt="官方验证码" draggable="false" hidden></div><p id="captcha-hint" class="muted" role="status">图片加载后，直接在上面操作。</p><div class="actions"><button class="button" data-action="captcha-refresh">刷新图片</button><button class="button" data-action="modal-close">暂时关闭</button></div>`, true);
 }
 
 export function tasksView(state) {
