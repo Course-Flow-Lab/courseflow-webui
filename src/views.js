@@ -1,7 +1,7 @@
 import { courseHref, platformHref } from './api.js';
 import { roleName } from './accounts.js';
 import { courseProgress } from './course-progress.js';
-import { canSelectStudyUnit } from './study-selection.js';
+import { canSelectStudyUnit, hasSelectedLockedChapter } from './study-selection.js';
 
 export const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -89,6 +89,9 @@ export function courseView(state, featureContent = null) {
   const platform = state.platforms.find((p) => p.id === state.route.pid);
   const canSelect = (unit) => canSelectStudyUnit(unit, state.bootstrap.capabilities);
   const pending = state.units.filter(canSelect);
+  const quizAction = state.route.pid === 'cx' && state.bootstrap.capabilities.auto_prerequisite_quizzes &&
+    pending.some(unit => unit.selectable_after_unlock) && state.presentation?.actions?.find(action => action.id === 'auto_prerequisite_quizzes');
+  const quizOption = quizAction ? `<label class="check-label"><input id="auto-prerequisite-quizzes" type="checkbox"${state.autoPrerequisiteQuizzes ? ' checked' : ''}${hasSelectedLockedChapter(pending, state.selected) ? '' : ' disabled'}>${esc(quizAction.label)}</label>` : '';
   const canStudy = !state.bootstrap.quiet_hours.active && state.bootstrap.capabilities.jobs.includes('study') && platform?.operations.includes('study');
   const done = state.units.filter((u) => u.state === 'completed').length;
   const progressInfo = courseProgress(course, course.outline_available ? state.units : undefined);
@@ -104,7 +107,7 @@ export function courseView(state, featureContent = null) {
     `<div class="detail-overview"><div><span class="muted">${esc(progressInfo.label)}</span><strong>${esc(progressInfo.text)}</strong></div>${progressInfo.value === null ? '' : progress(progressInfo.value)}${progressInfo.value !== null && state.units.length ? `<span class="muted">${done} / ${state.units.length} 单元已完成</span>` : ''}</div><div class="detail-tabs" aria-label="课程功能">${tabs.map((t) => `<a href="${courseHref(state.route.pid, course, t.id)}" class="${t.id === (state.route.tab || 'study') ? 'active' : ''}">${esc(t.label)}</a>`).join('')}</div>${featureContent !== null ? featureContent : ''}
     ${featureContent !== null ? '' : `
     ${!course.outline_available ? '<div class="banner">此课程的目录暂未由平台模块提供。</div>' : ''}
-    ${state.units.length ? `<div class="selection-toolbar"><label class="check-label"><input id="select-all" type="checkbox"${pending.length && pending.every((u) => state.selected.has(u.id)) ? ' checked' : ''}${pending.length ? '' : ' disabled'}>选择未完成单元</label><span id="selection-count" class="muted">已选择 ${state.selected.size} 个</span><span class="spacer"></span>${state.me?.user?.role === 'admin' && platform?.operations.includes('trial') && state.presentation?.actions?.some((a) => a.id === 'trial') ? '<button class="button" data-action="feature-job" data-operation="trial" title="管理员诊断：检查单个视频的进度保存">短时试跑</button>' : ''}<button id="study-button" class="button primary" data-action="study"${!state.selected.size || !canStudy ? ' disabled' : ''}>${icon('play')}开始学习</button></div>
+    ${state.units.length ? `<div class="selection-toolbar"><label class="check-label"><input id="select-all" type="checkbox"${pending.length && pending.every((u) => state.selected.has(u.id)) ? ' checked' : ''}${pending.length ? '' : ' disabled'}>选择未完成单元</label><span id="selection-count" class="muted">已选择 ${state.selected.size} 个</span>${quizOption}<span class="spacer"></span>${state.me?.user?.role === 'admin' && platform?.operations.includes('trial') && state.presentation?.actions?.some((a) => a.id === 'trial') ? '<button class="button" data-action="feature-job" data-operation="trial" title="管理员诊断：检查单个视频的进度保存">短时试跑</button>' : ''}<button id="study-button" class="button primary" data-action="study"${!state.selected.size || !canStudy ? ' disabled' : ''}>${icon('play')}开始学习</button></div>
     <div class="outline">${[...chapters.values()].map((chapter) => `<section class="chapter"><header><h2>${esc(chapter.name)}</h2><span class="muted">${chapter.units.filter((u) => u.state === 'completed').length} / ${chapter.units.length}</span></header>${chapter.units.map((u) => `<label class="unit-row${u.state === 'completed' ? ' completed' : ''}"><input type="checkbox" data-unit="${esc(u.id)}"${state.selected.has(u.id) ? ' checked' : ''}${canSelect(u) ? '' : ' disabled'} aria-label="选择 ${esc(u.name)}"><span class="unit-symbol">${icon(u.state === 'completed' ? 'check' : u.kind === 'video' ? 'play' : 'book')}</span><span class="unit-info"><strong>${esc(u.name)}</strong><small class="muted">${esc(({ video: '视频', audio: '音频', document: '文档', reading: '阅读', empty: '章节' })[u.kind] || u.kind)} · ${duration(u.duration_seconds)}${u.selectable_note ? ' · ' + esc(u.selectable_note) : ''}</small></span>${badge(u.state)}</label>`).join('')}</section>`).join('')}</div>` : empty('暂无学习单元', '刷新目录后可查看平台提供的学习单元。')}`}`;
 }
 

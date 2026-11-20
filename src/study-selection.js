@@ -2,6 +2,10 @@ export function canSelectStudyUnit(unit, capabilities) {
   return unit.state !== 'completed' && (unit.selectable || capabilities.deferred_study && unit.selectable_after_unlock);
 }
 
+export function hasSelectedLockedChapter(units, selected) {
+  return units.some(unit => unit.selectable_after_unlock && selected.has(unit.id));
+}
+
 export function studySelection(available, picks) {
   let lastLockedChapter = -1;
   for (const unit of available) {
