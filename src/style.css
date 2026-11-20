@@ -237,6 +237,10 @@ dialog::backdrop { background: #10152566; backdrop-filter: blur(3px); }
 .modal-content > p { margin: 12px 0; font-size: 12px; }
 .modal-content > progress { margin: 18px 0 10px; }
 .modal-content .actions { margin-top: 20px; }
+.captcha-stage { display: flex; align-items: center; justify-content: center; min-height: 200px; margin: 16px 0 8px; padding: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #eef1f7; }
+.captcha-stage img { display: block; max-width: 100%; height: auto; max-height: 62vh; touch-action: none; user-select: none; cursor: crosshair; }
+.captcha-stage img.dragging { cursor: grabbing; }
+#captcha-hint { min-height: 1.6em; }
 .qr-area { display: grid; justify-items: center; gap: 20px; text-align: center; padding: 6px 0 18px; }
 .qr { width: 200px; height: 200px; object-fit: contain; background: #fff; border: 1px solid var(--line); padding: 9px; border-radius: 10px; }
 .qr-area p { font-size: 12px; color: var(--muted); }
