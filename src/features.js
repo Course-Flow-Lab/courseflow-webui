@@ -3,6 +3,7 @@ import { qaView, loadQa, qaAction, submitDraft, captureQa, qaBudget } from './qa
 import { coursePath, withAccount } from './api.js';
 import { accountMatchesTask } from './accounts.js';
 import { esc, icon, empty, modalFrame, taskDetailView, dateText, stateLabel } from './views.js';
+import { hasSelectedLockedChapter, prerequisiteQuizAction } from './study-selection.js';
 
 export const operationNames = { study: '课程学习', trial: '短时试跑', review: '每日复习', answer: '作业与考试', mastery: '掌握度练习', meeting: '见面课', qa: '回答课程问题', ask: '发布课程提问' };
 const supportedTabs = new Set(['study', 'review', 'answer', 'mastery', 'meeting', 'qa', 'score', 'records']);
@@ -82,8 +83,11 @@ export async function openJob(operation, ctx) {
   const texts = operation === 'ask' ? [...document.querySelectorAll('[name="draft-selected"]:checked')].map((i) => document.querySelector(`[data-draft="${Number(i.value)}"]`).value.trim()) : [];
   if (operation === 'ask' && (!texts.length || texts.some((t) => t.length < 10 || t.length > 1000))) throw new Error('请选择长度为 10–1000 字的提问草稿。');
   const writing = ['answer', 'mastery'].includes(operation);
-  const body = `<form id="job-form"><p>课程：<strong>${esc(state.course.name)}</strong></p><p class="muted">${operation === 'ask' ? `将发布 ${texts.length} 个已选提问，请确认正文。` : operation === 'qa' ? '会将生成的回答发布到平台课程讨论区。' : `已选择 ${ids.length} 个项目。`}</p>${writing || operation === 'qa' ? `<label>使用模型<select name="model_id"><option value="">${writing ? '手动补答' : '请先选择模型，或在任务暂停后手工填写'}</option>${state.settings.models.filter((m) => m.enabled).map((m) => `<option value="${esc(m.id)}"${p.model_id === m.id ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}${writing ? `${toggle('auto_submit', '答案生成后自动提交（未勾选时先等待我确认）')}${toggle('redo', '明确重做所选试卷（仅平台允许时可用）')}<p class="muted">已有答案会保留。只有在任务详情明确允许覆盖后才修改已有作答。掌握度最多处理三轮，未达到满分会保留说明。</p>` : ''}${operation === 'study' ? toggle('speedup', '允许最高 1.5 倍速', p.speedup) : ''}${operation === 'trial' ? numberField('trial_seconds', '试跑秒数', 60, 30, 180) : ''}${operation === 'review' ? numberField('review_minutes', '本次复习分钟数', p.review_minutes, 1, 60) : ''}${operation === 'qa' ? `${numberField('limit', '最多回答数量', Math.min(state.feature?.counts?.answer || 5, qaBudget(state).room.answer || 1), 1, Math.max(1, qaBudget(state).room.answer))}${numberField('max_answers', '仅处理回答数不超过', 0, 0, 100)}` : ''}${['qa', 'ask'].includes(operation) && p.qa_allow_over_limit ? '<div class="banner risk-banner">超额模式已开启：额外内容可能不计分、触发平台限制，并消耗更多模型额度。请核对本次数量。</div>' : ''}${operation === 'ask' ? texts.map((t) => `<blockquote>${esc(t)}</blockquote>`).join('') : ''}${formFooter(operation === 'ask' ? '确认发布提问' : operation === 'qa' ? '确认开始发布回答' : '创建任务')}</form>`;
-  openModal('job', modalFrame(operationNames[operation], body), { operation, ids, texts });
+  const quizAction = operation === 'study' && hasSelectedLockedChapter(state.units, new Set(ids)) && prerequisiteQuizAction(state);
+  const studyOptions = operation === 'study' ? toggle('speedup', '允许最高 1.5 倍速', p.speedup) : '';
+  const quizOption = quizAction ? toggle('auto_prerequisite_quizzes', esc(quizAction.label), state.autoPrerequisiteQuizzes) : '';
+  const body = `<form id="job-form"><p>课程：<strong>${esc(state.course.name)}</strong></p><p class="muted">${operation === 'ask' ? `将发布 ${texts.length} 个已选提问，请确认正文。` : operation === 'qa' ? '会将生成的回答发布到平台课程讨论区。' : `已选择 ${ids.length} 个项目。`}</p>${writing || operation === 'qa' ? `<label>使用模型<select name="model_id"><option value="">${writing ? '手动补答' : '请先选择模型，或在任务暂停后手工填写'}</option>${state.settings.models.filter((m) => m.enabled).map((m) => `<option value="${esc(m.id)}"${p.model_id === m.id ? ' selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}${writing ? `${toggle('auto_submit', '答案生成后自动提交（未勾选时先等待我确认）')}${toggle('redo', '明确重做所选试卷（仅平台允许时可用）')}<p class="muted">已有答案会保留。只有在任务详情明确允许覆盖后才修改已有作答。掌握度最多处理三轮，未达到满分会保留说明。</p>` : ''}${studyOptions}${quizOption}${operation === 'trial' ? numberField('trial_seconds', '试跑秒数', 60, 30, 180) : ''}${operation === 'review' ? numberField('review_minutes', '本次复习分钟数', p.review_minutes, 1, 60) : ''}${operation === 'qa' ? `${numberField('limit', '最多回答数量', Math.min(state.feature?.counts?.answer || 5, qaBudget(state).room.answer || 1), 1, Math.max(1, qaBudget(state).room.answer))}${numberField('max_answers', '仅处理回答数不超过', 0, 0, 100)}` : ''}${['qa', 'ask'].includes(operation) && p.qa_allow_over_limit ? '<div class="banner risk-banner">超额模式已开启：额外内容可能不计分、触发平台限制，并消耗更多模型额度。请核对本次数量。</div>' : ''}${operation === 'ask' ? texts.map((t) => `<blockquote>${esc(t)}</blockquote>`).join('') : ''}${formFooter(operation === 'ask' ? '确认发布提问' : operation === 'qa' ? '确认开始发布回答' : '创建任务')}</form>`;
+  openModal('job', modalFrame(operationNames[operation], body), { operation, ids, texts, canAutoPrerequisiteQuizzes: Boolean(quizAction) });
 }
 
 function questionsView(workflow, editable) {
@@ -160,6 +164,7 @@ export async function submit(form, ctx) {
   } else if (form.id === 'job-form') {
     const m = state.modal;
     const options = { ...(data.model_id !== undefined ? { model_id: data.model_id || null, use_ai: Boolean(data.model_id) } : {}), auto_submit: data.auto_submit === 'on', redo: data.redo === 'on', speedup: data.speedup === 'on', ...(data.review_minutes ? { review_minutes: Number(data.review_minutes) } : {}), ...(data.trial_seconds ? { limit_seconds: Number(data.trial_seconds) } : {}), ...(data.limit ? { limit: Number(data.limit), max_answers: Number(data.max_answers) } : {}), ...(m.texts?.length ? { texts: m.texts } : {}) };
+    if (m.canAutoPrerequisiteQuizzes) options.auto_prerequisite_quizzes = data.auto_prerequisite_quizzes === 'on';
     const r = await api(coursePath(state.route.pid, state.course) + '/jobs', { method: 'POST', body: { operation: m.operation, item_ids: m.ids, options } });
     closeModal(); await refreshTasks(); toast('任务已创建，可在任务详情中查看进度和补答。'); await showTask(r.task.id);
   } else if (form.id === 'answers-form') {

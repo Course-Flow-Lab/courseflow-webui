@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseRoute, courseHref, coursePath } from '../src/api.js';
 import { courseCards, courseView } from '../src/views.js';
+import { canSelectStudyUnit, toggleStudyPick } from '../src/study-selection.js';
+import { action, submit } from '../src/features.js';
 
 test('course URLs preserve opaque identifiers, including slashes and Unicode', () => {
   const course = { id: '课程/1', recruit_id: 'term?1#2' };
@@ -51,4 +53,109 @@ test('短时试跑只在管理员的课程页显示', () => {
   state.me.user.role = 'admin';
   assert.match(courseView(state), /data-operation="trial"/);
   assert.match(courseView(state), /管理员诊断/);
+});
+
+test('超星全选包含有前置任务的章节，定时开放章节仍不可选', () => {
+  const state = {
+    route: { pid: 'cx' },
+    course: { name: '合成课程', outline_available: true },
+    platforms: [{ id: 'cx', name: '超星', operations: ['study'] }],
+    units: [
+      { id: 'ready', name: '可学单元', state: 'not_started', selectable: true, kind: 'video' },
+      { id: 'locked:2', name: '后续章节', state: 'not_started', selectable: false, selectable_after_unlock: true, kind: 'empty' },
+      { id: 'locked:3', name: '定时开放', state: 'not_started', selectable: false, kind: 'empty' },
+      { id: 'done', name: '已完成单元', state: 'completed', selectable: true, kind: 'video' },
+    ],
+    selected: new Set(),
+    bootstrap: { quiet_hours: { active: false }, capabilities: { jobs: ['study'], deferred_study: true } },
+  };
+  const available = state.units.filter(unit => canSelectStudyUnit(unit, state.bootstrap.capabilities));
+  assert.deepEqual(available.map(unit => unit.id), ['ready', 'locked:2']);
+  state.selected = new Set(available.map(unit => unit.id));
+  assert.match(courseView(state), /id="select-all" type="checkbox" checked/);
+  assert.match(courseView(state), /data-unit="locked:2" checked aria-label/);
+  assert.match(courseView(state), /data-unit="locked:3" disabled/);
+  assert.doesNotMatch(courseView(state), /data-action="study-chain"/);
+});
+
+test('勾选待解锁章节补选所有前序单元，取消前置单元时同步取消依赖项', () => {
+  const units = [
+    { id: 'video', chapter_order: 1, selectable: true },
+    { id: 'locked:2', chapter_order: 2, selectable_after_unlock: true },
+    { id: 'locked:3', chapter_order: 3, selectable_after_unlock: true },
+    { id: 'document', chapter_order: 1, selectable: true },
+    { id: 'completed', chapter_order: 0, selectable: true, state: 'completed' },
+    { id: 'timed', chapter_order: 0, selectable: false },
+    { id: 'later', chapter_order: 4, selectable: true },
+  ];
+  const available = units.filter(unit => canSelectStudyUnit(unit, { deferred_study: true }));
+  const picks = new Set(['later']);
+  assert.deepEqual([...toggleStudyPick(available, picks, 'locked:3', true)], ['video', 'locked:2', 'locked:3', 'document', 'later']);
+  assert.deepEqual([...toggleStudyPick(available, picks, 'video', false)], ['later']);
+});
+
+test('自动提交前置测验需有配套模块且已选待解锁章节', () => {
+  const state = {
+    route: { pid: 'cx' },
+    course: { name: '合成课程', outline_available: true },
+    platforms: [{ id: 'cx', name: '超星', operations: ['study'] }],
+    units: [{ id: 'locked:2', name: '后续章节', state: 'not_started', selectable_after_unlock: true, kind: 'empty' }],
+    selected: new Set(),
+    bootstrap: { quiet_hours: { active: false }, capabilities: { jobs: ['study'], deferred_study: true, auto_prerequisite_quizzes: true } },
+  };
+  assert.doesNotMatch(courseView(state), /auto-prerequisite-quizzes/);
+  state.presentation = { actions: [{ id: 'auto_prerequisite_quizzes', label: '模型自动作答并提交前置测验' }] };
+  assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox" disabled/);
+  state.selected.add('locked:2');
+  assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox">/);
+  state.autoPrerequisiteQuizzes = true;
+  assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox" checked/);
+});
+
+test('开始学习的确认表单把自动作答选项提交到任务接口', async t => {
+  t.mock.method(globalThis, 'FormData', function (form) { return Object.entries(form.values); });
+  const state = {
+    route: { pid: 'cx', tab: 'study' },
+    course: { id: 'course-1', recruit_id: 'class-1', name: '合成课程' },
+    units: [{ id: 'locked:2', selectable_after_unlock: true }, { id: 'document-1', selectable: true }],
+    selected: new Set(['locked:2']),
+    autoPrerequisiteQuizzes: true,
+    bootstrap: { capabilities: { auto_prerequisite_quizzes: true } },
+    presentation: { actions: [{ id: 'auto_prerequisite_quizzes', label: '模型自动作答并提交前置测验' }] },
+  };
+  let markup, request;
+  const ctx = {
+    state,
+    async api(url, args) {
+      if (url === '/api/settings') return { preferences: { speedup: true } };
+      request = { url, ...args };
+      return { task: { id: 'created' } };
+    },
+    openModal(kind, html, data) {
+      markup = html;
+      state.modal = { kind, ...data };
+    },
+    closeModal() { state.modal = null; },
+    refreshTasks() {},
+    showTask() {},
+    toast() {},
+  };
+  const start = { dataset: { action: 'study' } };
+  assert.equal(await action(start, ctx), true);
+  assert.match(markup, /name="auto_prerequisite_quizzes" checked/);
+  await submit({ id: 'job-form', values: { auto_prerequisite_quizzes: 'on', speedup: 'on' } }, ctx);
+  assert.equal(request.url, '/api/platforms/cx/courses/course-1/class-1/jobs');
+  assert.deepEqual(request.body.item_ids, ['locked:2']);
+  assert.equal(request.body.options.auto_prerequisite_quizzes, true);
+  assert.equal(request.body.options.speedup, true);
+
+  await action(start, ctx);
+  await submit({ id: 'job-form', values: {} }, ctx);
+  assert.equal(request.body.options.auto_prerequisite_quizzes, false);
+
+  state.selected = new Set(['document-1']);
+  await action(start, ctx);
+  assert.doesNotMatch(markup, /name="auto_prerequisite_quizzes"/);
+  await submit({ id: 'job-form', values: { auto_prerequisite_quizzes: 'on' } }, ctx);
+  assert.equal(Object.hasOwn(request.body.options, 'auto_prerequisite_quizzes'), false);
 });

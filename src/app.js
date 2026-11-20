@@ -8,18 +8,21 @@ import { rememberCourse } from './course-progress.js';
 import { logsView, submitLogs } from './logs.js';
 import { invitationsView, loadInvitations, invitationFormIds, submitInvitations, invitationAction } from './invitations.js';
 import { WEBUI_VERSION } from './version.js';
+import { canSelectStudyUnit, hasSelectedLockedChapter, toggleStudyPick } from './study-selection.js';
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
   me: null, csrf: '', bootstrap: null, platforms: [], modules: [], tasks: [],
   courseLists: {}, courseErrors: {}, course: null, units: [], presentation: null,
-  settings: null, feature: null, qaCourses: {}, selected: new Set(), route: parseRoute(location.hash), loading: false,
+  settings: null, feature: null, qaCourses: {}, studyPicks: new Set(), selected: new Set(), autoPrerequisiteQuizzes: false, route: parseRoute(location.hash), loading: false,
   search: '', filter: 'all', taskFilter: 'all', modal: null, invitationAdmin: null, generatedInvitations: [], admin: null,
 };
 let routeGeneration = 0;
 let sessionGeneration = 0;
 let challengeGeneration = 0;
 let challengeTimer;
+let captchaTimer;
+let captchaSession = 0;
 let refreshTimer;
 let toastTimer;
 let refreshCount = 0;
@@ -57,7 +60,7 @@ function expireSession() {
   routeGeneration += 1;
   clearTimeout(refreshTimer);
   closeModal();
-  Object.assign(state, { me: null, csrf: '', platforms: [], accountSelection: {}, accountQuota: null, modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, selected: new Set(), invitationAdmin: null, generatedInvitations: [], admin: null });
+  Object.assign(state, { me: null, csrf: '', platforms: [], accountSelection: {}, accountQuota: null, modules: [], tasks: [], courseLists: {}, courseErrors: {}, course: null, units: [], settings: null, feature: null, qaCourses: {}, studyPicks: new Set(), selected: new Set(), autoPrerequisiteQuizzes: false, invitationAdmin: null, generatedInvitations: [], admin: null });
   $('#workspace').hidden = true;
   $('#page').replaceChildren();
   $('#auth').hidden = false;
@@ -163,7 +166,9 @@ async function loadRoute(force = false) {
   state.course = null;
   state.units = [];
   state.presentation = null;
+  state.studyPicks = new Set();
   state.selected = new Set();
+  state.autoPrerequisiteQuizzes = false;
   $('#page-error').hidden = true;
   state.loading = ['courses', 'course', 'settings', 'invitations', 'admin'].includes(state.route.page);
   renderPage();
@@ -268,6 +273,9 @@ function scheduleRefresh() {
 }
 
 function updateSelection() {
+  document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = state.selected.has(input.dataset.unit); });
+  const autoQuiz = $('#auto-prerequisite-quizzes');
+  if (autoQuiz) autoQuiz.disabled = !hasSelectedLockedChapter(state.units, state.selected);
   const count = $('#selection-count');
   if (count) count.textContent = `已选择 ${state.selected.size} 个`;
   const button = $('#study-button');
@@ -276,7 +284,7 @@ function updateSelection() {
     !state.bootstrap.capabilities.jobs.includes('study') || !platform?.operations.includes('study');
   const all = $('#select-all');
   if (all) {
-    const pendingUnits = state.units.filter((u) => u.selectable && u.state !== 'completed');
+    const pendingUnits = state.units.filter((u) => canSelectStudyUnit(u, state.bootstrap.capabilities));
     all.checked = pendingUnits.length > 0 && pendingUnits.every((u) => state.selected.has(u.id));
     all.indeterminate = state.selected.size > 0 && !all.checked;
   }
@@ -290,9 +298,117 @@ function openModal(kind, content, extra = {}) {
 
 function closeModal() {
   challengeGeneration += 1;
+  captchaSession += 1;
   clearTimeout(challengeTimer);
+  clearInterval(captchaTimer);
   state.modal = null;
+  state.captchaGeo = null;
+  state.captchaDrag = null;
   if ($('#modal').open) $('#modal').close();
+}
+
+function captchaHint(message) {
+  const hint = $('#captcha-hint');
+  if (hint) hint.textContent = message;
+}
+
+async function refreshCaptcha(id, generation) {
+  if (generation !== captchaSession || state.modal?.kind !== 'captcha' || state.modal.id !== id) return;
+  try {
+    const [challenge, snapshot] = await Promise.all([
+      api('/api/tasks/' + encodeURIComponent(id) + '/captcha'),
+      api('/api/tasks/' + encodeURIComponent(id)),
+    ]);
+    if (generation !== captchaSession || state.modal?.kind !== 'captcha' || state.modal.id !== id) return;
+    if (!snapshot.task.manual_captcha) {
+      closeModal();
+      toast('验证已完成，任务会继续执行。');
+      await refreshTasks();
+      return;
+    }
+    if (challenge.state === 'unavailable') {
+      captchaHint('验证码已结束，任务会继续执行。');
+      return;
+    }
+    if (challenge.state !== 'ready') {
+      const loading = $('#captcha-loading');
+      if (loading) loading.hidden = false;
+      captchaHint('正在等待官方验证码加载…');
+      return;
+    }
+    state.captchaGeo = { x: Number(challenge.x), y: Number(challenge.y), width: Number(challenge.width), height: Number(challenge.height) };
+    const image = $('#captcha-image');
+    const loading = $('#captcha-loading');
+    if (!image) return;
+    image.src = 'data:' + challenge.mime + ';base64,' + challenge.image;
+    image.hidden = false;
+    if (loading) loading.hidden = true;
+    captchaHint('在图片上拖动滑块，或点击点选目标。');
+  } catch (error) {
+    if (generation === captchaSession) captchaHint(error.message || '读取验证码失败，请刷新重试。');
+  }
+}
+
+async function submitCaptcha(action) {
+  const modal = state.modal;
+  if (!modal || modal.kind !== 'captcha') return;
+  captchaHint('正在发送到官方浏览器…');
+  try {
+    await api('/api/tasks/' + encodeURIComponent(modal.id) + '/captcha', { method: 'POST', body: action });
+    captchaHint('已发送，正在刷新验证码…');
+    setTimeout(() => { void refreshCaptcha(modal.id, captchaSession); }, 350);
+  } catch (error) { captchaHint(error.message || '验证码操作失败，请重试。'); }
+}
+
+function bindCaptchaImage(id, generation) {
+  const image = $('#captcha-image');
+  if (!image) return;
+  image.addEventListener('pointerdown', (event) => {
+    if (!state.captchaGeo || image.hidden) return;
+    event.preventDefault();
+    image.setPointerCapture?.(event.pointerId);
+    state.captchaDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
+    image.classList.add('dragging');
+  });
+  image.addEventListener('pointermove', (event) => {
+    if (!state.captchaDrag || event.pointerId !== state.captchaDrag.pointerId) return;
+    const distance = Math.hypot(event.clientX - state.captchaDrag.startX, event.clientY - state.captchaDrag.startY);
+    if (distance > 4) captchaHint('松开后将拖动发送到官方验证码。');
+  });
+  const finish = (event) => {
+    const drag = state.captchaDrag;
+    if (!drag || event.pointerId !== drag.pointerId || !state.captchaGeo || generation !== captchaSession) {
+      state.captchaDrag = null;
+      image.classList.remove('dragging');
+      return;
+    }
+    state.captchaDrag = null;
+    image.classList.remove('dragging');
+    const rect = image.getBoundingClientRect();
+    const geo = state.captchaGeo;
+    if (!rect.width || !rect.height) return;
+    const scaleX = geo.width / rect.width, scaleY = geo.height / rect.height;
+    const start = { x: geo.x + (drag.startX - rect.left) * scaleX, y: geo.y + (drag.startY - rect.top) * scaleY };
+    const end = { x: geo.x + (event.clientX - rect.left) * scaleX, y: geo.y + (event.clientY - rect.top) * scaleY };
+    if (Math.hypot(end.x - start.x, end.y - start.y) < 4) void submitCaptcha({ type: 'click', x: end.x, y: end.y });
+    else void submitCaptcha({ type: 'drag', from: start, to: end });
+  };
+  image.addEventListener('pointerup', finish);
+  image.addEventListener('pointercancel', finish);
+}
+
+async function openCaptcha(id) {
+  const task = state.tasks.find((item) => item.id === id);
+  const generation = ++captchaSession;
+  clearInterval(captchaTimer);
+  state.captchaGeo = null;
+  state.captchaDrag = null;
+  openModal('captcha', view.captchaModalView(task || { id }), { id });
+  bindCaptchaImage(id, generation);
+  await refreshCaptcha(id, generation);
+  captchaTimer = setInterval(() => {
+    if (generation === captchaSession && state.modal?.kind === 'captcha') void refreshCaptcha(id, generation);
+  }, 1500);
 }
 
 async function connect(pid, method, accountId) {
@@ -414,12 +530,15 @@ document.addEventListener('change', (event) => {
   }
   if (qaChange(target, state)) return;
   if (!(target instanceof HTMLInputElement)) return;
-  if (target.dataset.unit) {
-    if (target.checked) state.selected.add(target.dataset.unit); else state.selected.delete(target.dataset.unit);
-    updateSelection();
-  } else if (target.id === 'select-all') {
-    state.selected = new Set(target.checked ? state.units.filter((u) => u.selectable && u.state !== 'completed').map((u) => u.id) : []);
-    document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = state.selected.has(input.dataset.unit); });
+  if (target.id === 'auto-prerequisite-quizzes') state.autoPrerequisiteQuizzes = target.checked;
+  if (target.dataset.unit || target.id === 'select-all') {
+    const available = state.units.filter((u) => canSelectStudyUnit(u, state.bootstrap.capabilities));
+    if (target.dataset.unit) {
+      state.selected = toggleStudyPick(available, state.studyPicks, target.dataset.unit, target.checked);
+    } else {
+      state.studyPicks = new Set(target.checked ? available.map(unit => unit.id) : []);
+      state.selected = new Set(state.studyPicks);
+    }
     updateSelection();
   }
 });
@@ -537,13 +656,10 @@ document.addEventListener('click', async (event) => {
       await refreshConnections();
       renderPage();
       toast('平台账号已断开。');
-    } else if (action === 'study') {
-      await api(coursePath(state.route.pid, state.course) + '/study', { method: 'POST', body: { unit_ids: [...state.selected], operation: 'study' } });
-      state.selected.clear();
-      document.querySelectorAll('[data-unit]').forEach((input) => { input.checked = false; });
-      updateSelection();
-      await refreshTasks();
-      toast('任务已创建，可在底部或任务中心查看。');
+    } else if (action === 'task-captcha') {
+      await openCaptcha(id);
+    } else if (action === 'captcha-refresh') {
+      if (state.modal?.kind === 'captcha') await refreshCaptcha(state.modal.id, captchaSession);
     } else if (['task-pause', 'task-resume', 'task-stop', 'task-migrate'].includes(action)) {
       const migration = action === 'task-migrate';
       const modal = state.modal;
