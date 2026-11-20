@@ -6,6 +6,12 @@ export function hasSelectedLockedChapter(units, selected) {
   return units.some(unit => unit.selectable_after_unlock && selected.has(unit.id));
 }
 
+export function prerequisiteQuizAction(state) {
+  if (state.route.pid === 'cx' && state.bootstrap.capabilities.auto_prerequisite_quizzes) {
+    return state.presentation?.actions?.find(action => action.id === 'auto_prerequisite_quizzes');
+  }
+}
+
 export function studySelection(available, picks) {
   let lastLockedChapter = -1;
   for (const unit of available) {

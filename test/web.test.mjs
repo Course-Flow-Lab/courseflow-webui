@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseRoute, courseHref, coursePath } from '../src/api.js';
 import { courseCards, courseView } from '../src/views.js';
 import { canSelectStudyUnit, toggleStudyPick } from '../src/study-selection.js';
+import { action, submit } from '../src/features.js';
 
 test('course URLs preserve opaque identifiers, including slashes and Unicode', () => {
   const course = { id: '课程/1', recruit_id: 'term?1#2' };
@@ -109,4 +110,52 @@ test('自动提交前置测验需有配套模块且已选待解锁章节', () =>
   assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox">/);
   state.autoPrerequisiteQuizzes = true;
   assert.match(courseView(state), /id="auto-prerequisite-quizzes" type="checkbox" checked/);
+});
+
+test('开始学习的确认表单把自动作答选项提交到任务接口', async t => {
+  t.mock.method(globalThis, 'FormData', function (form) { return Object.entries(form.values); });
+  const state = {
+    route: { pid: 'cx', tab: 'study' },
+    course: { id: 'course-1', recruit_id: 'class-1', name: '合成课程' },
+    units: [{ id: 'locked:2', selectable_after_unlock: true }, { id: 'document-1', selectable: true }],
+    selected: new Set(['locked:2']),
+    autoPrerequisiteQuizzes: true,
+    bootstrap: { capabilities: { auto_prerequisite_quizzes: true } },
+    presentation: { actions: [{ id: 'auto_prerequisite_quizzes', label: '模型自动作答并提交前置测验' }] },
+  };
+  let markup, request;
+  const ctx = {
+    state,
+    async api(url, args) {
+      if (url === '/api/settings') return { preferences: { speedup: true } };
+      request = { url, ...args };
+      return { task: { id: 'created' } };
+    },
+    openModal(kind, html, data) {
+      markup = html;
+      state.modal = { kind, ...data };
+    },
+    closeModal() { state.modal = null; },
+    refreshTasks() {},
+    showTask() {},
+    toast() {},
+  };
+  const start = { dataset: { action: 'study' } };
+  assert.equal(await action(start, ctx), true);
+  assert.match(markup, /name="auto_prerequisite_quizzes" checked/);
+  await submit({ id: 'job-form', values: { auto_prerequisite_quizzes: 'on', speedup: 'on' } }, ctx);
+  assert.equal(request.url, '/api/platforms/cx/courses/course-1/class-1/jobs');
+  assert.deepEqual(request.body.item_ids, ['locked:2']);
+  assert.equal(request.body.options.auto_prerequisite_quizzes, true);
+  assert.equal(request.body.options.speedup, true);
+
+  await action(start, ctx);
+  await submit({ id: 'job-form', values: {} }, ctx);
+  assert.equal(request.body.options.auto_prerequisite_quizzes, false);
+
+  state.selected = new Set(['document-1']);
+  await action(start, ctx);
+  assert.doesNotMatch(markup, /name="auto_prerequisite_quizzes"/);
+  await submit({ id: 'job-form', values: { auto_prerequisite_quizzes: 'on' } }, ctx);
+  assert.equal(Object.hasOwn(request.body.options, 'auto_prerequisite_quizzes'), false);
 });
