@@ -14,7 +14,7 @@ const $ = (selector) => document.querySelector(selector);
 const state = {
   me: null, csrf: '', bootstrap: null, platforms: [], modules: [], tasks: [],
   courseLists: {}, courseErrors: {}, course: null, units: [], presentation: null,
-  settings: null, feature: null, qaCourses: {}, studyPicks: new Set(), selected: new Set(), autoPrerequisiteQuizzes: false, route: parseRoute(location.hash), loading: false,
+  settings: null, feature: null, qaCourses: {}, studyPicks: new Set(), selected: new Set(), autoPrerequisiteQuizzes: false, captchaDragging: false, route: parseRoute(location.hash), loading: false,
   search: '', filter: 'all', taskFilter: 'all', modal: null, invitationAdmin: null, generatedInvitations: [], admin: null,
 };
 let routeGeneration = 0;
@@ -304,6 +304,7 @@ function closeModal() {
   state.modal = null;
   state.captchaGeo = null;
   state.captchaDrag = null;
+  state.captchaDragging = false;
   if ($('#modal').open) $('#modal').close();
 }
 
@@ -314,6 +315,10 @@ function captchaHint(message) {
 
 async function refreshCaptcha(id, generation) {
   if (generation !== captchaSession || state.modal?.kind !== 'captcha' || state.modal.id !== id) return;
+  // Replacing the img src during a pointer gesture cancels the drag in
+  // Chromium even when pointer capture is set. The interval must not
+  // refresh the image between pointerdown and pointerup.
+  if (state.captchaDragging) return;
   try {
     const [challenge, snapshot] = await Promise.all([
       api('/api/tasks/' + encodeURIComponent(id) + '/captcha'),
@@ -343,7 +348,7 @@ async function refreshCaptcha(id, generation) {
     image.src = 'data:' + challenge.mime + ';base64,' + challenge.image;
     image.hidden = false;
     if (loading) loading.hidden = true;
-    captchaHint('在图片上拖动滑块，或点击点选目标。');
+    captchaHint('请拖动图片底部左侧的滑块（不要拖动上方拼图块）；点选验证请直接点击目标。');
   } catch (error) {
     if (generation === captchaSession) captchaHint(error.message || '读取验证码失败，请刷新重试。');
   }
@@ -367,6 +372,7 @@ function bindCaptchaImage(id, generation) {
     if (!state.captchaGeo || image.hidden) return;
     event.preventDefault();
     image.setPointerCapture?.(event.pointerId);
+    state.captchaDragging = true;
     state.captchaDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY };
     image.classList.add('dragging');
   });
@@ -379,10 +385,12 @@ function bindCaptchaImage(id, generation) {
     const drag = state.captchaDrag;
     if (!drag || event.pointerId !== drag.pointerId || !state.captchaGeo || generation !== captchaSession) {
       state.captchaDrag = null;
+      state.captchaDragging = false;
       image.classList.remove('dragging');
       return;
     }
     state.captchaDrag = null;
+    state.captchaDragging = false;
     image.classList.remove('dragging');
     const rect = image.getBoundingClientRect();
     const geo = state.captchaGeo;
@@ -403,6 +411,7 @@ async function openCaptcha(id) {
   clearInterval(captchaTimer);
   state.captchaGeo = null;
   state.captchaDrag = null;
+  state.captchaDragging = false;
   openModal('captcha', view.captchaModalView(task || { id }), { id });
   bindCaptchaImage(id, generation);
   await refreshCaptcha(id, generation);
