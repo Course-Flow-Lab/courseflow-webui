@@ -11,7 +11,7 @@ Courseflow 的独立网页工作台，使用原生 JavaScript、HTML、CSS 和 V
 ```sh
 CF_BIND=127.0.0.1:8102 \
 CF_PUBLIC_URL=http://127.0.0.1:5173 \
-CF_DATA_DIR="$HOME/.local/share/courseflow-webui-dev" npm start
+CF_DATA_DIR="$HOME/workspace/courseflow/local/webui-dev-data" npm start
 ```
 
 在本仓库运行：
